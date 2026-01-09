@@ -1,0 +1,146 @@
+# =============================================================================
+# CLIS Safety Configuration | CLIS 安全配置
+# =============================================================================
+# This file defines security rules to prevent dangerous operations.
+# 本文件定义安全规则以防止危险操作。
+# =============================================================================
+
+# Blacklist Configuration | 黑名单配置
+blacklist:
+  # Enable blacklist checking | 启用黑名单检查
+  # Block commands matching dangerous patterns
+  # 阻止匹配危险模式的命令
+  enabled: true
+  
+  # Dangerous command patterns | 危险命令模式
+  # These commands will be blocked immediately
+  # 这些命令将被立即阻止
+  patterns:
+    # File system destruction | 文件系统破坏
+    - "rm -rf /"
+    - "rm -rf /*"
+    - "rm -rf ~/*"
+    - "mkfs"
+    - "dd if=/dev/zero"
+    - "dd if=/dev/random"
+    - "> /dev/sda"
+    - "> /dev/hda"
+    
+    # System modification | 系统修改
+    - "chmod -R 777 /"
+    - "chown -R"
+    
+    # Network attacks | 网络攻击
+    - ":(){ :|:& };:"  # Fork bomb
+    
+    # Package manager dangers | 包管理器危险操作
+    - "npm install -g"  # Requires explicit confirmation
+    - "pip install --break-system-packages"
+  
+  # Custom blacklist | 自定义黑名单
+  # Add your own dangerous patterns here
+  # 在此添加你自己的危险模式
+  custom: []
+
+# Dry-Run Configuration | 预览模式配置
+dry_run:
+  # Enable dry-run by default | 默认启用预览模式
+  # Show commands before executing them
+  # 在执行前显示命令
+  enabled: true
+  
+  # Force dry-run for high-risk operations | 对高风险操作强制预览
+  # These operations always require preview, even if dry-run is disabled
+  # 即使禁用预览模式，这些操作也始终需要预览
+  force_for:
+    - delete     # Any delete operations
+    - modify     # File modifications
+    - system     # System-level changes
+    - network    # Network operations
+  
+  # Auto-approve low-risk commands | 自动批准低风险命令
+  # Skip confirmation for read-only operations
+  # 对只读操作跳过确认
+  auto_approve_readonly: false
+
+# Sudo Configuration | Sudo 配置
+sudo:
+  # Allow sudo commands | 允许 sudo 命令
+  # If false, all sudo commands are blocked
+  # 如果为 false，所有 sudo 命令都将被阻止
+  allowed: false
+  
+  # Require explicit skill permission | 需要 Skill 显式授权
+  # Sudo commands only allowed if skill declares "allow_sudo: true"
+  # 仅当 Skill 声明 "allow_sudo: true" 时才允许 sudo 命令
+  require_skill_permission: true
+  
+  # Always confirm sudo commands | 始终确认 sudo 命令
+  # Even if dry-run is disabled, sudo commands need confirmation
+  # 即使禁用预览模式，sudo 命令也需要确认
+  always_confirm: true
+
+# Risk Scoring | 风险评分
+risk:
+  # Enable risk scoring | 启用风险评分
+  # Assign risk levels to commands automatically
+  # 自动为命令分配风险级别
+  enabled: true
+  
+  # Risk thresholds | 风险阈值
+  thresholds:
+    # Low risk (0-30): Read-only operations
+    # 低风险（0-30）：只读操作
+    low: 30
+    
+    # Medium risk (31-60): Write operations
+    # 中风险（31-60）：写操作
+    medium: 60
+    
+    # High risk (61-90): Delete/modify operations
+    # 高风险（61-90）：删除/修改操作
+    high: 90
+    
+    # Critical risk (91-100): System-level operations
+    # 极高风险（91-100）：系统级操作
+    critical: 100
+  
+  # Actions based on risk level | 基于风险级别的操作
+  actions:
+    low: execute        # Execute directly (if dry-run disabled)
+    medium: confirm     # Require user confirmation
+    high: dry_run       # Force dry-run preview
+    critical: block     # Block execution
+
+# Confirmation Configuration | 确认配置
+confirmation:
+  # Timeout for user confirmation in seconds | 用户确认超时时间（秒）
+  # Auto-reject if no response within this time
+  # 如果在此时间内没有响应，则自动拒绝
+  timeout: 60
+  
+  # Default action on timeout | 超时时的默认操作
+  # Options: reject, accept
+  # 选项：reject（拒绝）、accept（接受）
+  default_on_timeout: reject
+  
+  # Show risk score in confirmation prompt | 在确认提示中显示风险分数
+  show_risk_score: true
+
+# Logging Configuration | 日志配置
+logging:
+  # Log all executed commands | 记录所有执行的命令
+  # Keep a history of what was executed
+  # 保留执行历史记录
+  log_commands: true
+  
+  # Log blocked commands | 记录被阻止的命令
+  # Track potentially dangerous attempts
+  # 跟踪潜在的危险尝试
+  log_blocked: true
+  
+  # Include timestamps | 包含时间戳
+  include_timestamp: true
+  
+  # Include risk scores | 包含风险分数
+  include_risk_score: true
