@@ -89,7 +89,9 @@ You have access to the following tools to gather information before generating c
 
 ## Tool Calling Protocol
 
-When you need information, respond with a tool call in this format:
+**IMPORTANT**: You should call tools ONLY ONCE at the beginning to gather information, then IMMEDIATELY generate the final commands.
+
+When you need information, respond with tool call(s) in this format:
 
 ```tool_call
 {{
@@ -101,11 +103,9 @@ When you need information, respond with a tool call in this format:
 }}
 ```
 
-You can call multiple tools in sequence. After getting tool results, generate the final commands.
-
 ## Final Response Format
 
-When you have enough information, respond with the final commands in JSON format:
+After tool results are provided, you MUST respond with the final commands in JSON format:
 
 ```json
 {{
@@ -114,17 +114,22 @@ When you have enough information, respond with the final commands in JSON format
 }}
 ```
 
+**CRITICAL**: Do NOT call tools repeatedly. Call tools once to get information, then generate commands.
+
 ## Important Rules
 
-1. Call tools to get actual information (file lists, git status, etc.)
-2. Base your commands on real data from tool calls
-3. Don't use placeholder names (file1.py, container1, etc.)
-4. Generate precise commands based on actual context
+1. Call tools ONCE at the start to get actual information (file lists, git status, etc.)
+2. After receiving tool results, IMMEDIATELY generate the final commands
+3. Base your commands on real data from tool calls
+4. Don't use placeholder names (file1.py, container1, etc.)
+5. Generate precise commands based on actual context
+6. DO NOT call the same tool multiple times - you already have the information!
 """
         
         # Start conversation
         current_query = query
         iteration = 0
+        called_tools = set()  # Track which tools have been called to prevent loops
         
         while iteration < self.max_iterations:
             iteration += 1
@@ -143,11 +148,35 @@ When you have enough information, respond with the final commands in JSON format
             tool_calls = self._extract_tool_calls(response)
             
             if tool_calls:
+                # Check for repeated tool calls (indicates loop)
+                tool_signatures = [f"{tc.get('tool')}:{tc.get('parameters')}" for tc in tool_calls]
+                if any(sig in called_tools for sig in tool_signatures):
+                    logger.warning("Detected repeated tool calls, forcing command generation")
+                    # Force the LLM to generate commands instead of calling tools again
+                    current_query = f"""You have already called these tools and received the results.
+DO NOT call tools again. You MUST now generate the final commands based on the information you already have.
+
+User's original request: "{query}"
+
+Generate the final commands NOW in JSON format:
+```json
+{{
+  "commands": ["command1", "command2"],
+  "explanation": "explanation"
+}}
+```
+"""
+                    continue
+                
                 # Execute tool calls
                 tool_results = []
                 for tool_call in tool_calls:
                     tool_name = tool_call.get("tool")
                     parameters = tool_call.get("parameters", {})
+                    
+                    # Track tool call to prevent loops
+                    tool_sig = f"{tool_name}:{parameters}"
+                    called_tools.add(tool_sig)
                     
                     logger.info(f"Executing tool: {tool_name} with parameters: {parameters}")
                     
@@ -168,19 +197,25 @@ When you have enough information, respond with the final commands in JSON format
                 
                 # Build next query with tool results
                 results_text = self._format_tool_results(tool_results)
-                current_query = f"""Previous tool calls and results:
+                current_query = f"""You have gathered the necessary information from tools. Here are the results:
 
 {results_text}
 
-Based on these results, generate the final commands to accomplish the user's request: "{query}"
+**IMPORTANT**: You now have all the information you need. DO NOT call any more tools.
 
-Remember to respond in JSON format:
+User's original request: "{query}"
+
+Based on the tool results above, generate the final shell commands to accomplish the user's request.
+
+You MUST respond with commands in JSON format:
 ```json
 {{
-  "commands": ["command1", "command2"],
-  "explanation": "explanation"
+  "commands": ["command1", "command2", "..."],
+  "explanation": "detailed explanation"
 }}
 ```
+
+DO NOT call tools again. Generate the final commands NOW.
 """
                 
                 # Continue to next iteration
