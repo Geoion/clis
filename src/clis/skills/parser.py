@@ -5,8 +5,9 @@ Skill parser for CLIS - parses Markdown skill files.
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
+import yaml
 from markdown_it import MarkdownIt
 
 from clis.utils.logger import get_logger
@@ -79,13 +80,39 @@ class SkillParser:
         Returns:
             Parsed Skill object
         """
-        # Extract skill name from first heading or filename
-        name_match = re.search(r"^#\s+(?:Skill Name:\s+)?(.+)$", content, re.MULTILINE)
-        if name_match:
-            name = name_match.group(1).strip()
-        elif file_path:
+        # Check for YAML front matter (Anthropic format)
+        yaml_frontmatter = None
+        if content.startswith("---"):
+            end_marker = content.find("---", 3)
+            if end_marker != -1:
+                import yaml
+                try:
+                    yaml_content = content[3:end_marker].strip()
+                    yaml_frontmatter = yaml.safe_load(yaml_content)
+                    # Remove front matter from content
+                    content = content[end_marker + 3:].strip()
+                except Exception as e:
+                    logger.warning(f"Failed to parse YAML front matter: {e}")
+        
+        # Extract skill name
+        name = None
+        
+        # Try YAML front matter first (Anthropic format)
+        if yaml_frontmatter and "name" in yaml_frontmatter:
+            name = yaml_frontmatter["name"]
+        
+        # Try first heading
+        if not name:
+            name_match = re.search(r"^#\s+(?:Skill Name:\s+)?(.+)$", content, re.MULTILINE)
+            if name_match:
+                name = name_match.group(1).strip()
+        
+        # Try filename
+        if not name and file_path:
             name = file_path.stem
-        else:
+        
+        # Default
+        if not name:
             name = "Unnamed Skill"
         
         skill = Skill(
@@ -94,9 +121,30 @@ class SkillParser:
             raw_content=content,
         )
         
+        # Extract description from YAML front matter
+        if yaml_frontmatter and "description" in yaml_frontmatter:
+            skill.description = yaml_frontmatter["description"]
+        
         # Parse sections
-        skill.description = self._extract_section(content, "Description")
+        # If description not from YAML, try to extract from section
+        if not skill.description:
+            skill.description = self._extract_section(content, "Description")
+        
+        # If still no description, use first paragraph
+        if not skill.description:
+            lines = content.split("\n")
+            for line in lines:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    skill.description = line
+                    break
+        
+        # Extract instructions
         skill.instructions = self._extract_section(content, "Instructions")
+        
+        # If no Instructions section, use the entire content as instructions (Anthropic format)
+        if not skill.instructions:
+            skill.instructions = content
         skill.input_schema = self._extract_section(content, "Input Schema")
         skill.examples = self._extract_section(content, "Examples")
         
