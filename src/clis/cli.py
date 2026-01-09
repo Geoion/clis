@@ -3,7 +3,7 @@ CLI command definitions using Click.
 """
 
 import sys
-from typing import Optional
+from typing import Any, List, Optional, Tuple
 
 import click
 import requests
@@ -712,6 +712,164 @@ def doctor() -> None:
     
     click.echo("\n✅ CLIS is ready to use!")
     click.echo("   Try: clis \"show system information\"")
+
+
+@main.command()
+def config() -> None:
+    """Show all configuration values in a table."""
+    from rich.console import Console
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich.text import Text
+    
+    config_manager = ConfigManager()
+    console = Console()
+    
+    try:
+        # Load all configs
+        base_config = config_manager.load_base_config()
+        llm_config = config_manager.load_llm_config()
+        safety_config = config_manager.load_safety_config()
+        
+        def mask_sensitive(key: str, value: str) -> str:
+            """
+            Mask sensitive values (show only first and last 4 characters).
+            Only masks API keys.
+            """
+            # Only mask API keys
+            if "api.key" in key.lower() or key.lower().endswith(".key"):
+                if value and len(value) > 8:
+                    return f"{value[:4]}{'*' * (len(value) - 8)}{value[-4:]}"
+                elif value:
+                    return "*" * len(value)
+            return value
+        
+        def flatten_config(obj: Any, prefix: str = "") -> List[Tuple[str, str]]:
+            """Flatten nested config object to key-value pairs."""
+            items = []
+            
+            if hasattr(obj, "__dict__"):
+                for key, value in obj.__dict__.items():
+                    if key.startswith("_"):
+                        continue
+                    
+                    full_key = f"{prefix}.{key}" if prefix else key
+                    
+                    # Check if value has nested attributes
+                    if hasattr(value, "__dict__") and not isinstance(value, type):
+                        items.extend(flatten_config(value, full_key))
+                    # Check if value is a list or tuple using type name
+                    elif type(value).__name__ in ('list', 'tuple'):
+                        items.append((full_key, ", ".join(str(v) for v in value)))
+                    elif value is not None:
+                        items.append((full_key, str(value)))
+            
+            return items
+        
+        # Collect all config items
+        all_items = []
+        all_items.extend(flatten_config(base_config, "base"))
+        all_items.extend(flatten_config(llm_config, "llm"))
+        all_items.extend(flatten_config(safety_config, "safety"))
+        
+        # Create rich table
+        table = Table(
+            title="📋 CLIS Configuration",
+            title_style="bold cyan",
+            show_header=True,
+            header_style="bold magenta",
+            border_style="bright_blue",
+            show_lines=False,
+            expand=True,
+            padding=(0, 1),
+        )
+        
+        table.add_column("Category", style="cyan", no_wrap=True, width=12, justify="left")
+        table.add_column("Key", style="green", no_wrap=False, min_width=25)
+        table.add_column("Value", style="yellow", no_wrap=False, min_width=30)
+        
+        # Group items by category
+        for key, value in sorted(all_items):
+            masked_value = mask_sensitive(key, value)
+            is_masked = masked_value != value
+            
+            # Extract category and key parts
+            parts = key.split(".", 1)
+            if len(parts) == 2:
+                category, sub_key = parts
+            else:
+                category = "other"
+                sub_key = key
+            
+            # Color category
+            if category == "base":
+                category_style = "[bold blue]base[/]"
+            elif category == "llm":
+                category_style = "[bold green]llm[/]"
+            elif category == "safety":
+                category_style = "[bold red]safety[/]"
+            else:
+                category_style = category
+            
+            # Style the value based on type
+            if masked_value.lower() in ("true", "false"):
+                value_style = f"[bold {'bright_green' if masked_value.lower() == 'true' else 'bright_red'}]{masked_value}[/]"
+            elif is_masked:
+                # API key is masked
+                value_style = f"[bold red]{masked_value}[/] [dim]🔒[/]"
+            elif masked_value.isdigit() or (masked_value.replace(".", "", 1).isdigit() and masked_value.count(".") <= 1):
+                value_style = f"[bright_cyan]{masked_value}[/]"
+            elif not masked_value:
+                value_style = "[dim italic]<empty>[/]"
+            else:
+                value_style = f"[white]{masked_value}[/]"
+            
+            table.add_row(category_style, sub_key, value_style)
+        
+        # Print table
+        console.print()
+        console.print(table)
+        console.print()
+        
+        # Print summary and tips in a panel
+        tips_text = Text()
+        tips_text.append("💡 ", style="bold yellow")
+        tips_text.append("使用提示\n\n", style="bold cyan")
+        tips_text.append("• ", style="bold")
+        tips_text.append("获取配置: ", style="bold green")
+        tips_text.append("clis config-get <key>\n", style="dim")
+        tips_text.append("  示例: ", style="dim")
+        tips_text.append("clis config-get api.key\n\n", style="cyan")
+        tips_text.append("• ", style="bold")
+        tips_text.append("设置配置: ", style="bold green")
+        tips_text.append("clis config-set <key> <value>\n", style="dim")
+        tips_text.append("  示例: ", style="dim")
+        tips_text.append("clis config-set output.level verbose\n\n", style="cyan")
+        tips_text.append("• ", style="bold")
+        tips_text.append("注意: ", style="bold yellow")
+        tips_text.append("表格中的 Key 不包含 Category 前缀\n", style="dim")
+        tips_text.append("  config-get/set 时使用不带 Category 的键名\n", style="dim")
+        tips_text.append("  例如使用 ", style="dim")
+        tips_text.append("api.key", style="cyan")
+        tips_text.append(" 而不是 ", style="dim")
+        tips_text.append("llm.api.key\n\n", style="cyan")
+        tips_text.append("🔒 ", style="bold red")
+        tips_text.append("API Key 已加密显示（仅显示首尾4位）", style="dim")
+        
+        panel = Panel(
+            tips_text,
+            border_style="green",
+            padding=(1, 2),
+        )
+        console.print(panel)
+        
+        # Print summary
+        console.print(f"[bold]总计:[/] [cyan]{len(all_items)}[/] 个配置项", justify="center")
+        console.print()
+    
+    except Exception as e:
+        console.print(f"[bold red]错误:[/] {e}")
+        sys.exit(1)
 
 
 @main.command()
