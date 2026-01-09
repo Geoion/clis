@@ -130,12 +130,29 @@ class Agent:
         platform = get_platform()
         shell = get_shell()
         
+        # Platform-specific command examples
+        platform_examples = {
+            "windows": "Use PowerShell commands: Get-ChildItem, Get-Content, etc.",
+            "macos": "Use Unix commands: ls, cat, grep, find, etc.",
+            "linux": "Use Unix commands: ls, cat, grep, find, etc."
+        }
+        
         context = f"""
-Platform Context:
+## Platform Context (CRITICAL)
+
+**IMPORTANT**: You are running on {platform.upper()} with {shell} shell.
+
 - Operating System: {platform}
 - Shell: {shell}
+- Command Style: {platform_examples.get(platform, "Unix commands")}
 
-When generating commands, ensure they are compatible with the above platform and shell.
+**CRITICAL RULES**:
+- If platform is "macos" or "linux": Use ONLY Unix/bash commands (ls, grep, find, cat, etc.)
+- If platform is "windows": Use ONLY PowerShell commands (Get-ChildItem, Get-Content, etc.)
+- DO NOT mix Windows and Unix commands!
+- All commands MUST be compatible with {platform} and {shell}
+
+When generating commands, ensure they are 100% compatible with the above platform and shell.
 """
         
         return system_prompt + "\n\n" + context
