@@ -1,0 +1,116 @@
+# =============================================================================
+# CLIS LLM Configuration | CLIS 大语言模型配置
+# =============================================================================
+# This file configures which LLM provider and model to use.
+# 本文件配置使用哪个 LLM 提供商和模型。
+# =============================================================================
+
+# LLM Provider | LLM 提供商
+# Supported providers: openai, anthropic, deepseek, qwen, ollama
+# 支持的提供商：openai、anthropic、deepseek、qwen、ollama
+provider: deepseek
+
+# API Configuration | API 配置
+api:
+  # API Key | API 密钥
+  # Use environment variable for security (recommended)
+  # 使用环境变量以确保安全（推荐）
+  # Set in your shell: export DEEPSEEK_API_KEY="your-key-here"
+  # 在 Shell 中设置：export DEEPSEEK_API_KEY="your-key-here"
+  key: ${DEEPSEEK_API_KEY}
+  
+  # API Base URL | API 基础 URL
+  # Change this if using a proxy or custom endpoint
+  # 如果使用代理或自定义端点，请更改此项
+  base_url: https://api.deepseek.com/v1
+  
+  # Request timeout in seconds | 请求超时时间（秒）
+  timeout: 30
+
+# Model Configuration | 模型配置
+model:
+  # Model name | 模型名称
+  # For DeepSeek: deepseek-chat, deepseek-coder
+  # For OpenAI: gpt-4, gpt-3.5-turbo
+  # For Anthropic: claude-3-opus, claude-3-sonnet
+  # For Qwen: qwen-plus, qwen-turbo
+  # For Ollama: llama3, codellama, mistral, etc.
+  name: deepseek-chat
+  
+  # Temperature | 温度参数
+  # Controls randomness: 0.0 = deterministic, 1.0 = creative
+  # 控制随机性：0.0 = 确定性，1.0 = 创造性
+  temperature: 0.1
+  
+  # Max tokens | 最大 Token 数
+  # Maximum tokens in the response
+  # 响应中的最大 Token 数
+  max_tokens: 2000
+
+# Retry Configuration | 重试配置
+retry:
+  # Enable automatic retry on failure | 失败时自动重试
+  enabled: true
+  
+  # Maximum retry attempts | 最大重试次数
+  max_attempts: 3
+  
+  # Delay between retries in seconds | 重试间隔（秒）
+  delay: 1
+
+# Cost Tracking | 成本跟踪
+cost:
+  # Enable cost tracking | 启用成本跟踪
+  # Track API usage and estimated costs
+  # 跟踪 API 使用情况和预估成本
+  enabled: true
+  
+  # Alert threshold in CNY | 告警阈值（人民币）
+  # Warn when daily cost exceeds this amount
+  # 当每日成本超过此金额时发出警告
+  daily_threshold: 10.0
+
+# ============================================================================
+# Provider-Specific Examples | 不同提供商的配置示例
+# ============================================================================
+
+# --- OpenAI Example | OpenAI 示例 ---
+# provider: openai
+# api:
+#   key: ${OPENAI_API_KEY}
+#   base_url: https://api.openai.com/v1
+# model:
+#   name: gpt-4
+#   temperature: 0.1
+
+# --- Anthropic (Claude) Example | Anthropic (Claude) 示例 ---
+# provider: anthropic
+# api:
+#   key: ${ANTHROPIC_API_KEY}
+#   base_url: https://api.anthropic.com
+# model:
+#   name: claude-3-sonnet-20240229
+#   temperature: 0.1
+
+# --- Qwen Example | 通义千问示例 ---
+# provider: qwen
+# api:
+#   key: ${QWEN_API_KEY}
+#   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+# model:
+#   name: qwen-plus
+#   temperature: 0.1
+
+# --- Ollama (Local) Example | Ollama（本地）示例 ---
+# provider: ollama
+# api:
+#   base_url: http://localhost:11434
+#   # No API key needed for local Ollama
+#   # 本地 Ollama 不需要 API 密钥
+# model:
+#   name: llama3
+#   # Supported models: llama3, codellama, mistral, phi, etc.
+#   # 支持的模型：llama3、codellama、mistral、phi 等
+#   # Run 'ollama list' to see available models
+#   # 运行 'ollama list' 查看可用模型
+#   temperature: 0.1
