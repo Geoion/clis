@@ -374,11 +374,21 @@ def init(provider: Optional[str]) -> None:
 
 @main.command()
 @click.argument("name")
-def new(name: str) -> None:
+@click.option("--auto", is_flag=True, help="Use LLM to auto-generate skill based on prompt")
+def new(name: str, auto: bool) -> None:
     """
-    Create a new skill with AI assistance.
+    Create a new skill file.
     
-    This will use LLM to generate a skill template based on your description.
+    Two modes:
+    1. Direct mode (default): clis new "skill-name"
+       Creates a basic skill template that you can edit manually.
+    
+    2. Auto mode: clis new "description of skill" --auto
+       Uses LLM to generate a complete skill based on your description.
+    
+    Examples:
+        clis new "my-custom-skill"
+        clis new "a skill to manage docker containers" --auto
     """
     from clis.agent import Agent
     from clis.utils.platform import get_skills_dir, ensure_dir
@@ -390,134 +400,12 @@ def new(name: str) -> None:
         click.echo("⚠️  Configuration not found. Please run 'clis init' first.", err=True)
         sys.exit(1)
     
-    # Check if skill already exists
-    skill_path = get_skills_dir() / "custom" / f"{name}.md"
-    if skill_path.exists():
-        if not click.confirm(f"⚠️  Skill '{name}' already exists. Overwrite?", default=False):
-            click.echo("Cancelled.")
-            return
-    
-    click.echo(f"🎨 Creating new skill: {name}")
-    click.echo()
-    
-    # Ask for skill description
-    description = click.prompt("Brief description of what this skill does")
-    click.echo()
-    
-    # Ask for main operations
-    click.echo("What operations should this skill perform? (one per line, empty line to finish)")
-    operations = []
-    while True:
-        op = input("  - ").strip()
-        if not op:
-            break
-        operations.append(op)
-    
-    if not operations:
-        click.echo("⚠️  No operations specified. Cancelled.")
-        return
-    
-    click.echo()
-    click.echo("🤖 Generating skill template with AI...")
-    
-    # Generate skill template using LLM
-    try:
-        agent = Agent(config_manager)
-        
-        operations_text = "\n".join([f"- {op}" for op in operations])
-        
-        system_prompt = """
-You are a skill template generator for CLIS.
-Generate a complete SKILL.md file based on the user's requirements.
-
-The skill MUST follow this format:
-
-# Skill Name: [Name]
-
-## Description
-[Brief description]
-
-## Instructions
-[Detailed instructions for the AI on how to execute this skill]
-1. Step 1
-2. Step 2
-...
-
-## Input Schema
-```json
-{
-  "field1": "type (description)",
-  "field2": "type (description)"
-}
-```
-
-## Examples
-
-**用户输入**: [example input]
-
-**AI 输出**:
-```json
-{
-  "commands": ["command1", "command2"],
-  "explanation": "explanation"
-}
-```
-
-## Safety Rules (CLIS Extension)
-- Forbid: [dangerous patterns]
-- Require confirmation: [risky patterns]
-
-## Platform Compatibility (CLIS Extension)
-- windows: [Windows-specific instructions]
-- macos: [macOS-specific instructions]
-- linux: [Linux-specific instructions]
-
-## Dry-Run Mode (CLIS Extension)
-[true/false]
-
-Generate a complete, production-ready skill file.
-"""
-        
-        prompt = f"""
-Create a skill with the following details:
-
-Name: {name}
-Description: {description}
-
-Operations to support:
-{operations_text}
-
-Generate the complete SKILL.md content.
-"""
-        
-        skill_content = agent.generate(prompt, system_prompt, inject_context=False)
-        
-        # Clean up the response (remove markdown code blocks if present)
-        if "```markdown" in skill_content:
-            start = skill_content.find("```markdown") + 11
-            end = skill_content.rfind("```")
-            skill_content = skill_content[start:end].strip()
-        elif "```" in skill_content:
-            start = skill_content.find("```") + 3
-            end = skill_content.rfind("```")
-            skill_content = skill_content[start:end].strip()
-        
-        # Save skill file
-        ensure_dir(skill_path.parent)
-        with open(skill_path, "w", encoding="utf-8") as f:
-            f.write(skill_content)
-        
-        click.echo()
-        click.echo(f"✓ Skill created: {skill_path}")
-        click.echo()
-        click.echo("Next steps:")
-        click.echo(f"  1. Review and edit: clis edit {name}")
-        click.echo(f"  2. Validate: clis validate {name}")
-        click.echo(f"  3. Use it: clis run \"[your query]\"")
-    
-    except Exception as e:
-        click.echo(f"\n❌ Error: {e}", err=True)
-        sys.exit(1)
+    if auto:
+        # Auto mode: use LLM to generate skill
+        _create_skill_with_llm(name, config_manager)
+    else:
+        # Direct mode: create basic template
+        _create_skill_template(name, config_manager)
 
 
 @main.command()
@@ -576,6 +464,219 @@ def edit(name: str, editor: Optional[str] = None) -> None:
     
     except Exception as e:
         click.echo(f"Error opening editor: {e}", err=True)
+        sys.exit(1)
+
+
+@main.command()
+@click.argument("source")
+@click.option("--with-deps", is_flag=True, help="Download skill dependencies (templates, resources)")
+def install(source: str, with_deps: bool) -> None:
+    """
+    Install a skill from GitHub or URL.
+    
+    Examples:
+        clis install github.com/user/repo/skill.md
+        clis install https://raw.githubusercontent.com/user/repo/main/skill.md
+        clis install user/repo  # Will scan for *.md files
+        clis install --with-deps user/repo/skill.md  # Include dependencies
+    """
+    import re
+    from pathlib import Path
+    from urllib.parse import urlparse
+    
+    from clis.utils.platform import ensure_dir, get_skills_dir
+    
+    click.echo(f"📦 Installing skill from: {source}")
+    
+    # Parse source
+    if source.startswith("http://") or source.startswith("https://"):
+        # Direct URL - convert GitHub web URL to raw URL if needed
+        if "github.com" in source and "/blob/" in source:
+            # Convert: https://github.com/user/repo/blob/branch/path/file.md
+            # To: https://raw.githubusercontent.com/user/repo/branch/path/file.md
+            url = source.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/")
+            click.echo(f"Converted to raw URL: {url}")
+        else:
+            url = source
+    elif source.startswith("github.com/") or "/" in source:
+        # GitHub shorthand
+        if source.startswith("github.com/"):
+            source = source[11:]  # Remove "github.com/"
+        
+        # Parse GitHub path
+        parts = source.split("/")
+        if len(parts) < 2:
+            click.echo("Invalid GitHub path. Format: user/repo or user/repo/path/to/skill.md", err=True)
+            sys.exit(1)
+        
+        user, repo = parts[0], parts[1]
+        path = "/".join(parts[2:]) if len(parts) > 2 else ""
+        
+        if path and path.endswith(".md"):
+            # Direct file
+            url = f"https://raw.githubusercontent.com/{user}/{repo}/main/{path}"
+        else:
+            # Repository - scan for skills
+            click.echo(f"Scanning repository: {user}/{repo}")
+            url = f"https://api.github.com/repos/{user}/{repo}/contents/{path}"
+            
+            try:
+                response = requests.get(url, timeout=10)
+                response.raise_for_status()
+                
+                files = response.json()
+                md_files = [f for f in files if f["name"].endswith(".md")]
+                
+                if not md_files:
+                    click.echo("No .md files found in repository", err=True)
+                    sys.exit(1)
+                
+                click.echo(f"\nFound {len(md_files)} skill file(s):")
+                for i, f in enumerate(md_files, 1):
+                    click.echo(f"  {i}. {f['name']}")
+                
+                if len(md_files) == 1:
+                    selected = 0
+                else:
+                    choice = click.prompt(
+                        "\nSelect file to install",
+                        type=click.IntRange(1, len(md_files)),
+                        default=1,
+                    )
+                    selected = choice - 1
+                
+                url = md_files[selected]["download_url"]
+                click.echo(f"\nInstalling: {md_files[selected]['name']}")
+            
+            except Exception as e:
+                click.echo(f"Error accessing GitHub: {e}", err=True)
+                sys.exit(1)
+    else:
+        click.echo("Invalid source. Use: github.com/user/repo or https://...", err=True)
+        sys.exit(1)
+    
+    # Download skill file
+    try:
+        click.echo(f"Downloading from: {url}")
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        
+        content = response.text
+        
+        # Parse skill to get name
+        from clis.skills.parser import SkillParser
+        from clis.skills.validator import SkillValidator
+        
+        parser = SkillParser()
+        validator = SkillValidator()
+        
+        skill = parser.parse_content(content)
+        
+        # Validate skill
+        is_valid, errors = validator.validate(skill)
+        if not is_valid:
+            click.echo("\n⚠️  Skill validation failed:", err=True)
+            for error in errors:
+                click.echo(f"  - {error}", err=True)
+            
+            if not click.confirm("\nInstall anyway?", default=False):
+                click.echo("Installation cancelled.")
+                return
+        
+        # Save skill
+        custom_dir = get_skills_dir() / "custom"
+        ensure_dir(custom_dir)
+        
+        # Generate filename from skill name
+        filename = re.sub(r"[^\w\s-]", "", skill.name.lower())
+        filename = re.sub(r"[-\s]+", "-", filename)
+        skill_path = custom_dir / f"{filename}.md"
+        
+        if skill_path.exists():
+            if not click.confirm(f"\n⚠️  Skill '{skill.name}' already exists. Overwrite?", default=False):
+                click.echo("Installation cancelled.")
+                return
+        
+        with open(skill_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        
+        click.echo(f"\n✓ Skill installed: {skill.name}")
+        click.echo(f"  Location: {skill_path}")
+        
+        # Check for dependencies (templates, resources)
+        dependencies_found = []
+        if "templates/" in content or "resources/" in content:
+            # Extract referenced files
+            import re
+            file_refs = re.findall(r'["\']([^"\']*(?:templates|resources)/[^"\']+)["\']', content)
+            
+            if file_refs and with_deps:
+                click.echo("\n📦 Downloading dependencies...")
+                
+                # Try to download dependencies
+                for ref in set(file_refs):
+                    try:
+                        # Construct URL for dependency
+                        # Assume same repo structure
+                        if url.startswith("https://raw.githubusercontent.com/"):
+                            # Extract repo info
+                            parts = url.replace("https://raw.githubusercontent.com/", "").split("/")
+                            if len(parts) >= 3:
+                                user, repo, branch = parts[0], parts[1], parts[2]
+                                # Get the directory of the skill file
+                                skill_dir = "/".join(url.split("/")[:-1])
+                                dep_url = f"{skill_dir}/{ref}"
+                                
+                                click.echo(f"  Downloading: {ref}")
+                                dep_response = requests.get(dep_url, timeout=10)
+                                if dep_response.status_code == 200:
+                                    # Save dependency file
+                                    dep_path = skill_path.parent / ref
+                                    ensure_dir(dep_path.parent)
+                                    with open(dep_path, "w", encoding="utf-8") as f:
+                                        f.write(dep_response.text)
+                                    click.echo(f"    ✓ Saved: {dep_path}")
+                                    dependencies_found.append(ref)
+                                else:
+                                    click.echo(f"    ⚠️  Not found: {ref}")
+                    except Exception as e:
+                        click.echo(f"    ⚠️  Failed to download {ref}: {e}")
+                
+                if dependencies_found:
+                    click.echo(f"\n✓ Downloaded {len(dependencies_found)} dependencies")
+            
+            elif file_refs and not with_deps:
+                click.echo("\n⚠️  This skill requires additional files (templates/resources)")
+                click.echo("   The skill references external files that were not downloaded.")
+                click.echo("\n   Referenced files:")
+                for ref in set(file_refs):
+                    click.echo(f"     - {ref}")
+                click.echo("\n   To download dependencies:")
+                click.echo(f"     clis install --with-deps {source}")
+                click.echo("\n   Or manually:")
+                click.echo("     1. Clone the repository to get all files")
+                click.echo("     2. Copy files to the skill directory")
+        
+        # Clear cache
+        cache_file = Path.home() / ".clis" / "cache" / "skill_index.json"
+        if cache_file.exists():
+            cache_file.unlink()
+        
+        click.echo("\n✓ Skill cache cleared")
+        click.echo("\nNext steps:")
+        click.echo(f"  1. Validate: clis validate {skill.name}")
+        
+        if dependencies_found or "templates/" in content or "resources/" in content:
+            click.echo(f"  2. Review dependencies: clis edit {skill.name}")
+            click.echo(f"  3. Use it: clis run \"[your query]\"")
+        else:
+            click.echo(f"  2. Use it: clis run \"[your query]\"")
+    
+    except requests.exceptions.RequestException as e:
+        click.echo(f"\n❌ Download failed: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"\n❌ Error: {e}", err=True)
         sys.exit(1)
 
 
@@ -901,6 +1002,265 @@ def config_set(key: str, value: str) -> None:
         click.echo(f"✓ Set {key} = {value}")
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+def _create_skill_template(name: str, config_manager: ConfigManager) -> None:
+    """
+    Create a basic skill template (direct mode).
+    
+    Args:
+        name: Skill name
+        config_manager: Configuration manager instance
+    """
+    from pathlib import Path
+    from clis.utils.platform import get_skills_dir, ensure_dir
+    
+    # Generate filename from skill name
+    import re
+    filename = re.sub(r"[^\w\s-]", "", name.lower())
+    filename = re.sub(r"[-\s]+", "-", filename)
+    
+    # Check if skill already exists
+    skill_path = get_skills_dir() / "custom" / f"{filename}.md"
+    if skill_path.exists():
+        if not click.confirm(f"⚠️  Skill '{filename}' already exists. Overwrite?", default=False):
+            click.echo("Cancelled.")
+            return
+    
+    click.echo(f"📝 Creating skill template: {name}")
+    click.echo()
+    
+    # Create basic skill template
+    template = f"""# Skill Name: {name}
+
+## Description
+[简要描述这个 skill 的功能]
+
+## Instructions
+你是一个 {name} 助手。根据用户需求生成合适的命令。
+
+1. **分析用户需求**：
+   - [需求类型 1]：使用 [命令/工具]
+   - [需求类型 2]：使用 [命令/工具]
+   - [需求类型 3]：使用 [命令/工具]
+
+2. **平台适配**：
+   - macOS: [macOS 特定说明]
+   - Linux: [Linux 特定说明]
+   - Windows: [Windows 特定说明]
+
+3. **生成命令**：
+   - 返回 JSON 格式：`{{"commands": [...], "explanation": "..."}}`
+   - 提供清晰的说明
+   - 确保命令安全可靠
+
+## Examples
+
+**用户输入**：[示例输入 1]
+
+**AI 输出**：
+```json
+{{
+  "commands": [
+    "command1",
+    "command2"
+  ],
+  "explanation": "命令说明"
+}}
+```
+
+**用户输入**：[示例输入 2]
+
+**AI 输出**：
+```json
+{{
+  "commands": [
+    "command3"
+  ],
+  "explanation": "命令说明"
+}}
+```
+
+## Safety Rules (CLIS Extension)
+- Allow: [允许的操作类型]
+- Forbid: [禁止的操作类型]
+- Require confirmation: [需要确认的操作类型]
+
+## Platform Compatibility (CLIS Extension)
+- windows: [Windows 平台说明]
+- macos: [macOS 平台说明]
+- linux: [Linux 平台说明]
+
+## Dry-Run Mode (CLIS Extension)
+false
+"""
+    
+    try:
+        # Save skill file
+        ensure_dir(skill_path.parent)
+        with open(skill_path, "w", encoding="utf-8") as f:
+            f.write(template)
+        
+        click.echo(f"✓ Skill template created: {skill_path}")
+        click.echo()
+        click.echo("Next steps:")
+        click.echo(f"  1. Edit the template: clis edit {filename}")
+        click.echo(f"  2. Validate: clis validate {filename}")
+        click.echo(f"  3. Use it: clis run \"[your query]\"")
+        click.echo()
+        click.echo("💡 Tip: Use 'clis new \"description\" --auto' to generate with AI")
+    
+    except Exception as e:
+        click.echo(f"\n❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+def _create_skill_with_llm(prompt: str, config_manager: ConfigManager) -> None:
+    """
+    Create a skill using LLM (auto mode).
+    
+    Args:
+        prompt: User's description/prompt for the skill
+        config_manager: Configuration manager instance
+    """
+    from pathlib import Path
+    from clis.agent import Agent
+    from clis.utils.platform import get_skills_dir, ensure_dir
+    
+    click.echo(f"🤖 Generating skill from prompt: {prompt}")
+    click.echo()
+    
+    # Generate skill template using LLM
+    try:
+        agent = Agent(config_manager)
+        
+        system_prompt = """
+You are a skill template generator for CLIS (Command Line Interface Skills).
+Generate a complete skill file in Markdown format based on the user's description.
+
+The skill MUST follow this exact format:
+
+# Skill Name: [Descriptive Name]
+
+## Description
+[Brief description in Chinese]
+
+## Instructions
+你是一个 [skill type] 助手。根据用户需求生成合适的命令。
+
+1. **分析用户需求**：
+   - [需求类型 1]：使用 [命令/工具]
+   - [需求类型 2]：使用 [命令/工具]
+   - [需求类型 3]：使用 [命令/工具]
+
+2. **平台适配**：
+   - macOS: [macOS 特定说明]
+   - Linux: [Linux 特定说明]
+   - Windows: [Windows 特定说明]
+
+3. **生成命令**：
+   - 返回 JSON 格式：`{"commands": [...], "explanation": "..."}`
+   - 提供清晰的说明
+   - 确保命令安全可靠
+
+## Examples
+
+**用户输入**：[realistic example input]
+
+**AI 输出**：
+```json
+{
+  "commands": [
+    "command1",
+    "command2"
+  ],
+  "explanation": "命令说明"
+}
+```
+
+[Add 2-3 more examples]
+
+## Safety Rules (CLIS Extension)
+- Allow: [允许的操作类型]
+- Forbid: [禁止的危险操作]
+- Require confirmation: [需要确认的操作]
+
+## Platform Compatibility (CLIS Extension)
+- windows: [Windows 平台特定说明]
+- macos: [macOS 平台特定说明]
+- linux: [Linux 平台特定说明]
+
+## Dry-Run Mode (CLIS Extension)
+[true/false - true if commands should be tested without execution first]
+
+IMPORTANT:
+1. Generate complete, production-ready content
+2. Use Chinese for descriptions and explanations
+3. Provide realistic, practical examples
+4. Include proper safety rules
+5. Consider cross-platform compatibility
+6. Make instructions clear and actionable
+"""
+        
+        user_prompt = f"""
+Generate a complete CLIS skill based on this description:
+
+{prompt}
+
+Generate the complete skill file content following the template format exactly.
+"""
+        
+        click.echo("⏳ Calling LLM to generate skill...")
+        skill_content = agent.generate(user_prompt, system_prompt, inject_context=False)
+        
+        # Clean up the response (remove markdown code blocks if present)
+        if "```markdown" in skill_content:
+            start = skill_content.find("```markdown") + 11
+            end = skill_content.rfind("```")
+            skill_content = skill_content[start:end].strip()
+        elif "```" in skill_content:
+            start = skill_content.find("```") + 3
+            end = skill_content.rfind("```")
+            skill_content = skill_content[start:end].strip()
+        
+        # Extract skill name from generated content
+        import re
+        name_match = re.search(r"^#\s+(?:Skill Name:\s+)?(.+)$", skill_content, re.MULTILINE)
+        if name_match:
+            skill_name = name_match.group(1).strip()
+        else:
+            skill_name = "Generated Skill"
+        
+        # Generate filename
+        filename = re.sub(r"[^\w\s-]", "", skill_name.lower())
+        filename = re.sub(r"[-\s]+", "-", filename)
+        
+        # Check if skill already exists
+        skill_path = get_skills_dir() / "custom" / f"{filename}.md"
+        if skill_path.exists():
+            if not click.confirm(f"\n⚠️  Skill '{filename}' already exists. Overwrite?", default=False):
+                click.echo("Cancelled.")
+                return
+        
+        # Save skill file
+        ensure_dir(skill_path.parent)
+        with open(skill_path, "w", encoding="utf-8") as f:
+            f.write(skill_content)
+        
+        click.echo()
+        click.echo(f"✓ Skill generated: {skill_name}")
+        click.echo(f"✓ Saved to: {skill_path}")
+        click.echo()
+        click.echo("Next steps:")
+        click.echo(f"  1. Review and edit: clis edit {filename}")
+        click.echo(f"  2. Validate: clis validate {filename}")
+        click.echo(f"  3. Use it: clis run \"[your query]\"")
+    
+    except Exception as e:
+        click.echo(f"\n❌ Error: {e}", err=True)
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 
