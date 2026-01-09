@@ -1,0 +1,81 @@
+# =============================================================================
+# CLIS Base Configuration | CLIS 基础配置
+# =============================================================================
+# This file contains basic settings for CLIS, including paths and output levels.
+# 本文件包含 CLIS 的基础设置，包括路径和输出级别。
+# =============================================================================
+
+# Paths Configuration | 路径配置
+# Different paths for different platforms are automatically handled
+# 不同平台的路径会自动处理
+paths:
+  # Skills directory | Skill 存储目录
+  # Where CLIS looks for skill definitions
+  # CLIS 查找技能定义的位置
+  skills_dir: ~/.clis/skills
+  
+  # Cache directory | 缓存目录
+  # Stores temporary data like skill index for faster routing
+  # 存储临时数据，如技能索引，以加快路由速度
+  cache_dir: ~/.clis/cache
+  
+  # Log directory | 日志目录
+  # All execution logs are stored here
+  # 所有执行日志都存储在这里
+  log_dir: ~/.clis/logs
+
+# Output Configuration | 输出配置
+# Control how much information CLIS displays
+# 控制 CLIS 显示多少信息
+output:
+  # Output level | 输出级别
+  # - minimal: Only show final commands and critical errors
+  #   最小化：仅显示最终命令和关键错误
+  # - normal: Show commands, explanations, and important steps (default)
+  #   正常：显示命令、解释和重要步骤（默认）
+  # - verbose: Show detailed execution process including API calls
+  #   详细：显示详细的执行过程，包括 API 调用
+  # - debug: Show everything including internal states
+  #   调试：显示所有内容，包括内部状态
+  level: normal
+  
+  # Use rich formatting | 使用 Rich 美化输出
+  # Enable colorful and formatted output using the 'rich' library
+  # 使用 'rich' 库启用彩色和格式化输出
+  use_rich: true
+  
+  # Show execution time | 显示执行时间
+  # Display how long each command takes to execute
+  # 显示每个命令的执行时间
+  show_timing: true
+  
+  # Show token usage | 显示 Token 使用量
+  # Display API token consumption for cost tracking
+  # 显示 API Token 消耗，用于成本跟踪
+  show_tokens: true
+
+# Editor Configuration | 编辑器配置
+# Specify which editor to use for editing skills
+# 指定用于编辑技能的编辑器
+editor:
+  # Preferred editor | 首选编辑器
+  # Options: auto, vim, vi, nano, code, subl, atom, emacs
+  # 选项：auto（自动检测）、vim、vi、nano、code（VS Code）、subl（Sublime）、atom、emacs
+  # 'auto' will try $EDITOR env var, then common editors
+  # 'auto' 会尝试 $EDITOR 环境变量，然后尝试常见编辑器
+  preferred: auto
+  
+  # Fallback editors | 备用编辑器列表
+  # If preferred editor is not found, try these in order
+  # 如果首选编辑器未找到，按顺序尝试这些编辑器
+  fallback:
+    - code      # VS Code
+    - subl      # Sublime Text
+    - nano      # Nano (user-friendly)
+    - vim       # Vim
+    - vi        # Vi
+
+# Language Configuration | 语言配置
+# Set the language for CLIS messages
+# 设置 CLIS 消息的语言
+language: zh-CN  # Options: zh-CN, en-US
