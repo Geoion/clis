@@ -180,20 +180,26 @@ def main(ctx: click.Context, verbose: bool, minimal: bool, debug: bool) -> None:
 
 @main.command()
 @click.argument("query")
-@click.option("--tool-calling", is_flag=True, help="Enable tool calling mode (experimental)")
+@click.option("--no-tool-calling", is_flag=True, help="Disable tool calling mode (use standard mode)")
 @click.pass_context
-def run(ctx: click.Context, query: str, tool_calling: bool) -> None:
+def run(ctx: click.Context, query: str, no_tool_calling: bool) -> None:
     """
     Execute a natural language query.
+    
+    Tool calling mode is enabled by default for better accuracy.
+    Use --no-tool-calling to use standard mode.
     
     Examples:
         clis run "show system information"
         clis run "commit code with message: fix bug"
-        clis run "commit all Python files" --tool-calling
+        clis run "commit all Python files" --no-tool-calling
     """
     verbose = ctx.obj.get("verbose", False)
     minimal = ctx.obj.get("minimal", False)
     debug = ctx.obj.get("debug", False)
+    
+    # Tool calling is enabled by default, disabled with --no-tool-calling
+    tool_calling = not no_tool_calling
     
     execute_query(query, verbose, minimal, debug, tool_calling)
 
@@ -1296,21 +1302,59 @@ def _execute_with_tool_calling(
         Tuple of (commands, explanation)
     """
     from clis.agent.tool_calling import ToolCallingAgent
-    from clis.tools.builtin import (
+    from clis.tools import (
+        # Phase 0: Built-in
         ListFilesTool,
         ReadFileTool,
-        ExecuteCommandTool,
         GitStatusTool,
         DockerPsTool,
+        # Phase 1: Core Tools
+        SearchFilesTool,
+        GitDiffTool,
+        FileTreeTool,
+        HttpRequestTool,
+        DockerLogsTool,
+        # Phase 2: Important Tools
+        WriteFileTool,
+        SystemInfoTool,
+        GitLogTool,
+        CheckCommandTool,
+        # Phase 3: Enhanced Tools
+        GetEnvTool,
+        ListProcessesTool,
+        CheckPortTool,
+        DockerInspectTool,
+        DockerStatsTool,
+        GetFileInfoTool,
+        # ExecuteCommandTool is risky, not included by default
     )
     
     # Initialize tools
     tools = [
+        # Phase 0: Built-in (basic file and status tools)
         ListFilesTool(),
         ReadFileTool(),
         GitStatusTool(),
         DockerPsTool(),
-        # ExecuteCommandTool is risky, only enable if needed
+        # Phase 1: Core Tools (high value, low risk)
+        SearchFilesTool(),
+        GitDiffTool(),
+        FileTreeTool(),
+        HttpRequestTool(),
+        DockerLogsTool(),
+        # Phase 2: Important Tools
+        SystemInfoTool(),
+        GitLogTool(),
+        CheckCommandTool(),
+        # Phase 3: Enhanced Tools (read-only, safe)
+        GetEnvTool(),
+        ListProcessesTool(),
+        CheckPortTool(),
+        DockerInspectTool(),
+        DockerStatsTool(),
+        GetFileInfoTool(),
+        # WriteFileTool() is excluded by default (needs user confirmation)
+        # ExecuteCommandTool() is excluded by default (risky)
     ]
     
     # Create tool calling agent
