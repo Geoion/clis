@@ -19,7 +19,7 @@ from clis.safety import SafetyMiddleware
 from clis.utils.platform import get_clis_dir, get_platform
 
 
-def execute_query(query: str, verbose: bool = False, minimal: bool = False, debug: bool = False) -> None:
+def execute_query(query: str, verbose: bool = False, minimal: bool = False, debug: bool = False, tool_calling: bool = False) -> None:
     """
     Execute a natural language query.
     
@@ -28,6 +28,7 @@ def execute_query(query: str, verbose: bool = False, minimal: bool = False, debu
         verbose: Enable verbose output
         minimal: Enable minimal output
         debug: Enable debug output
+        tool_calling: Enable tool calling mode
     """
     try:
         # Initialize components
@@ -73,9 +74,17 @@ def execute_query(query: str, verbose: bool = False, minimal: bool = False, debu
         formatter.show_skill_match(skill.name, confidence)
         
         # Step 3: Generate commands using LLM
-        formatter.show_info("🤖 Generating commands...")
-        
-        system_prompt = f"""
+        if tool_calling:
+            # Use tool calling mode
+            formatter.show_info("🔧 Tool calling mode enabled...")
+            commands, explanation = _execute_with_tool_calling(
+                query, skill, config_manager, formatter, verbose or debug
+            )
+        else:
+            # Use standard mode
+            formatter.show_info("🤖 Generating commands...")
+            
+            system_prompt = f"""
 You are executing the "{skill.name}" skill.
 
 {skill.instructions}
@@ -87,11 +96,11 @@ You MUST respond in JSON format:
     "explanation": "Brief explanation of what these commands do"
 }}
 """
-        
-        response = agent.generate_json(query, system_prompt)
-        
-        commands = response.get("commands", [])
-        explanation = response.get("explanation", "")
+            
+            response = agent.generate_json(query, system_prompt)
+            
+            commands = response.get("commands", [])
+            explanation = response.get("explanation", "")
         
         if not commands:
             formatter.show_error("No commands generated")
@@ -171,20 +180,22 @@ def main(ctx: click.Context, verbose: bool, minimal: bool, debug: bool) -> None:
 
 @main.command()
 @click.argument("query")
+@click.option("--tool-calling", is_flag=True, help="Enable tool calling mode (experimental)")
 @click.pass_context
-def run(ctx: click.Context, query: str) -> None:
+def run(ctx: click.Context, query: str, tool_calling: bool) -> None:
     """
     Execute a natural language query.
     
     Examples:
         clis run "show system information"
         clis run "commit code with message: fix bug"
+        clis run "commit all Python files" --tool-calling
     """
     verbose = ctx.obj.get("verbose", False)
     minimal = ctx.obj.get("minimal", False)
     debug = ctx.obj.get("debug", False)
     
-    execute_query(query, verbose, minimal, debug)
+    execute_query(query, verbose, minimal, debug, tool_calling)
 
 
 @main.command()
@@ -1262,6 +1273,85 @@ Generate the complete skill file content following the template format exactly.
         import traceback
         traceback.print_exc()
         sys.exit(1)
+
+
+def _execute_with_tool_calling(
+    query: str,
+    skill: Any,
+    config_manager: ConfigManager,
+    formatter: Any,
+    show_tool_calls: bool = False
+) -> Tuple[List[str], str]:
+    """
+    Execute query with tool calling mode.
+    
+    Args:
+        query: User query
+        skill: Matched skill
+        config_manager: Configuration manager
+        formatter: Output formatter
+        show_tool_calls: Whether to show tool call details
+        
+    Returns:
+        Tuple of (commands, explanation)
+    """
+    from clis.agent.tool_calling import ToolCallingAgent
+    from clis.tools.builtin import (
+        ListFilesTool,
+        ReadFileTool,
+        ExecuteCommandTool,
+        GitStatusTool,
+        DockerPsTool,
+    )
+    
+    # Initialize tools
+    tools = [
+        ListFilesTool(),
+        ReadFileTool(),
+        GitStatusTool(),
+        DockerPsTool(),
+        # ExecuteCommandTool is risky, only enable if needed
+    ]
+    
+    # Create tool calling agent
+    tool_agent = ToolCallingAgent(
+        config_manager=config_manager,
+        tools=tools,
+        max_iterations=10
+    )
+    
+    # Build system prompt
+    system_prompt = f"""
+You are executing the "{skill.name}" skill.
+
+{skill.instructions}
+
+Generate commands based on the user's request.
+"""
+    
+    # Execute with tools
+    formatter.show_info("🔧 Calling tools to gather information...")
+    
+    commands, explanation, tool_calls_history = tool_agent.execute_with_tools(
+        query=query,
+        system_prompt=system_prompt,
+        skill_name=skill.name
+    )
+    
+    # Show tool calls if requested
+    if show_tool_calls and tool_calls_history:
+        formatter.show_info(f"\n📋 Tool calls made: {len(tool_calls_history)}")
+        for i, call in enumerate(tool_calls_history, 1):
+            status = "✓" if call["success"] else "✗"
+            formatter.show_info(f"  {status} {i}. {call['tool']}({call['parameters']})")
+            if show_tool_calls:
+                if call["success"]:
+                    output_preview = call["output"][:100] + "..." if len(call["output"]) > 100 else call["output"]
+                    formatter.show_info(f"     Output: {output_preview}")
+                else:
+                    formatter.show_info(f"     Error: {call['error']}")
+    
+    return commands, explanation
 
 
 if __name__ == "__main__":
