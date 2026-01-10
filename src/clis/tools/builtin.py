@@ -102,7 +102,17 @@ class ListFilesTool(Tool):
 
 
 class ReadFileTool(Tool):
-    """Read file content."""
+    """Read file content with intelligent chunking support."""
+    
+    def __init__(self, chunker=None):
+        """
+        Initialize ReadFileTool.
+        
+        Args:
+            chunker: Optional FileChunker instance for intelligent file splitting.
+                     If None, chunking is disabled.
+        """
+        self._chunker = chunker
     
     @property
     def name(self) -> str:
@@ -110,7 +120,10 @@ class ReadFileTool(Tool):
     
     @property
     def description(self) -> str:
-        return "Read the content of a file. Returns the full file content or first N lines."
+        return (
+            "Read file content. Supports intelligent chunking for large files. "
+            "Use chunk_index to read specific chunks of large files."
+        )
     
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -123,15 +136,43 @@ class ReadFileTool(Tool):
                 },
                 "max_lines": {
                     "type": "integer",
-                    "description": "Maximum number of lines to read (default: all)",
+                    "description": "Maximum number of lines to read (default: all, -1)",
                     "default": -1
+                },
+                "chunk_index": {
+                    "type": "integer",
+                    "description": "Which chunk to read for large files (0-indexed, default: 0)",
+                    "default": 0
+                },
+                "auto_chunk": {
+                    "type": "boolean",
+                    "description": "Enable automatic chunking for large files (default: true if chunker configured)",
+                    "default": True
                 }
             },
             "required": ["path"]
         }
     
-    def execute(self, path: str, max_lines: int = -1) -> ToolResult:
-        """Execute read file."""
+    def set_chunker(self, chunker) -> None:
+        """Set the file chunker instance."""
+        self._chunker = chunker
+    
+    def execute(
+        self,
+        path: str,
+        max_lines: int = -1,
+        chunk_index: int = 0,
+        auto_chunk: bool = True
+    ) -> ToolResult:
+        """
+        Execute read file with optional chunking.
+        
+        Args:
+            path: Path to the file
+            max_lines: Maximum lines to read (-1 for all)
+            chunk_index: Which chunk to read (0-indexed)
+            auto_chunk: Whether to use automatic chunking
+        """
         try:
             path_obj = Path(path)
             
@@ -149,25 +190,21 @@ class ReadFileTool(Tool):
                     error=f"Path is not a file: {path}"
                 )
             
-            # Read file
-            with open(path_obj, 'r', encoding='utf-8') as f:
-                if max_lines > 0:
-                    lines = []
-                    for i, line in enumerate(f):
-                        if i >= max_lines:
-                            break
-                        lines.append(line.rstrip('\n'))
-                    content = '\n'.join(lines)
-                    if i >= max_lines:
-                        content += f"\n... (truncated, showing first {max_lines} lines)"
-                else:
-                    content = f.read()
-            
-            return ToolResult(
-                success=True,
-                output=content,
-                metadata={"path": str(path_obj), "size": path_obj.stat().st_size}
+            # Check if chunking should be used
+            use_chunking = (
+                auto_chunk and 
+                self._chunker is not None and 
+                max_lines <= 0  # Don't chunk if max_lines is specified
             )
+            
+            if use_chunking:
+                needs_chunk, estimated_tokens, line_count = self._chunker.needs_chunking(path)
+                
+                if needs_chunk:
+                    return self._read_with_chunking(path_obj, chunk_index, estimated_tokens, line_count)
+            
+            # Standard file reading
+            return self._read_standard(path_obj, max_lines)
         
         except UnicodeDecodeError:
             return ToolResult(
@@ -182,6 +219,83 @@ class ReadFileTool(Tool):
                 output="",
                 error=f"Error reading file: {str(e)}"
             )
+    
+    def _read_standard(self, path_obj: Path, max_lines: int) -> ToolResult:
+        """Standard file reading without chunking."""
+        with open(path_obj, 'r', encoding='utf-8') as f:
+            if max_lines > 0:
+                lines = []
+                i = 0
+                for i, line in enumerate(f):
+                    if i >= max_lines:
+                        break
+                    lines.append(line.rstrip('\n'))
+                content = '\n'.join(lines)
+                if i >= max_lines:
+                    content += f"\n... (truncated, showing first {max_lines} lines)"
+            else:
+                content = f.read()
+        
+        return ToolResult(
+            success=True,
+            output=content,
+            metadata={"path": str(path_obj), "size": path_obj.stat().st_size}
+        )
+    
+    def _read_with_chunking(
+        self,
+        path_obj: Path,
+        chunk_index: int,
+        estimated_tokens: int,
+        line_count: int
+    ) -> ToolResult:
+        """Read file with chunking support."""
+        chunks = self._chunker.chunk_file(str(path_obj))
+        total_chunks = len(chunks)
+        
+        if chunk_index < 0 or chunk_index >= total_chunks:
+            return ToolResult(
+                success=False,
+                output="",
+                error=f"Invalid chunk_index: {chunk_index}. File has {total_chunks} chunks (0-{total_chunks-1})"
+            )
+        
+        chunk = chunks[chunk_index]
+        
+        # Add chunk navigation info
+        chunk_info = (
+            f"=== File: {path_obj} ===\n"
+            f"=== Chunk {chunk.chunk_index + 1}/{chunk.total_chunks} | "
+            f"Lines {chunk.start_line}-{chunk.end_line} | "
+            f"~{estimated_tokens} total tokens ===\n\n"
+        )
+        
+        # Navigation hints
+        if total_chunks > 1:
+            nav_hints = []
+            if chunk_index > 0:
+                nav_hints.append(f"Previous: chunk_index={chunk_index - 1}")
+            if chunk_index < total_chunks - 1:
+                nav_hints.append(f"Next: chunk_index={chunk_index + 1}")
+            if nav_hints:
+                chunk_info += f"[Navigation: {' | '.join(nav_hints)}]\n\n"
+        
+        content = chunk_info + chunk.content
+        
+        return ToolResult(
+            success=True,
+            output=content,
+            metadata={
+                "path": str(path_obj),
+                "size": path_obj.stat().st_size,
+                "chunk_index": chunk_index,
+                "total_chunks": total_chunks,
+                "start_line": chunk.start_line,
+                "end_line": chunk.end_line,
+                "estimated_tokens": estimated_tokens,
+                "total_lines": line_count
+            }
+        )
 
 
 class ExecuteCommandTool(Tool):
