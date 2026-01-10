@@ -52,7 +52,7 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
         from clis.agent.interactive_agent import InteractiveAgent
         from clis.tools import (
             ListFilesTool, ReadFileTool, ExecuteCommandTool, GitStatusTool, DockerPsTool,
-            SearchFilesTool, FileTreeTool, WriteFileTool, GetFileInfoTool,
+            DeleteFileTool, SearchFilesTool, FileTreeTool, WriteFileTool, GetFileInfoTool,
             GitAddTool, GitCommitTool, GitDiffTool, GitLogTool,
             DockerLogsTool, DockerInspectTool, DockerStatsTool,
             SystemInfoTool, CheckCommandTool, GetEnvTool, ListProcessesTool,
@@ -62,7 +62,7 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
         # Initialize tools
         tools = [
             ListFilesTool(), ReadFileTool(), ExecuteCommandTool(), GitStatusTool(), DockerPsTool(),
-            SearchFilesTool(), FileTreeTool(), WriteFileTool(), GetFileInfoTool(),
+            DeleteFileTool(), SearchFilesTool(), FileTreeTool(), WriteFileTool(), GetFileInfoTool(),
             GitAddTool(), GitCommitTool(), GitDiffTool(), GitLogTool(),
             DockerLogsTool(), DockerInspectTool(), DockerStatsTool(),
             SystemInfoTool(), CheckCommandTool(), GetEnvTool(), ListProcessesTool(),
@@ -137,6 +137,33 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                     params = step.get('params', {})
                     if params:
                         console.print(f"   [dim]Parameters:[/dim] [yellow]{params}[/yellow]")
+                    
+                    # Check if tool requires confirmation
+                    if step.get('requires_confirmation'):
+                        console.print(f"   [yellow]⚠️  This operation requires confirmation[/yellow]")
+                        response = click.prompt(
+                            "   Approve? [y/N]",
+                            type=str,
+                            default="N"
+                        ).lower().strip()
+                        
+                        approved = response in ['y', 'yes']
+                        
+                        if not approved:
+                            # Record rejection and continue
+                            result = agent.execute_tool(tool_name, params, approved=False)
+                            console.print(f"   [yellow]⚠️  {result['content']}[/yellow]")
+                            continue
+                        
+                        # Execute after approval
+                        result = agent.execute_tool(tool_name, params, approved=True)
+                        if result['success']:
+                            result_preview = result['content'][:200]
+                            if len(result['content']) > 200:
+                                result_preview += "..."
+                            console.print(f"   [green]✓[/green] [dim]{result_preview}[/dim]")
+                        else:
+                            console.print(f"   [red]✗ Failed[/red]")
                 
                 elif step_type == "tool_result":
                     # 修复: 不要仅依赖 success 标志,检查是否有实际输出
@@ -157,8 +184,9 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                     console.print(f"   [dim]Command:[/dim] [white]{step['content']}[/white]")
                     
                     risk = step['risk']
-                    risk_color = {"low": "green", "medium": "yellow", "high": "red"}.get(risk, "white")
-                    console.print(f"   [dim]Risk:[/dim] [{risk_color}]{risk}[/{risk_color}]")
+                    risk_score = step.get('risk_score', 0)
+                    risk_color = {"low": "green", "medium": "yellow", "high": "red", "critical": "bold red"}.get(risk, "white")
+                    console.print(f"   [dim]Risk:[/dim] [{risk_color}]{risk}[/{risk_color}] [dim]({risk_score}/100)[/dim]")
                     
                     if step.get('needs_confirmation'):
                         # Ask for confirmation
