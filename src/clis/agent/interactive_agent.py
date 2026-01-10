@@ -175,7 +175,7 @@ OR
             if self.auto_mode:
                 logger.info(f"Iteration {iteration + 1} (auto mode)")
             else:
-            logger.info(f"Iteration {iteration + 1}/{self.max_iterations}")
+                logger.info(f"Iteration {iteration + 1}/{self.max_iterations}")
             
             # Mark new iteration in context manager
             self.context_manager.next_iteration()
@@ -272,15 +272,15 @@ OR
                         "success": False
                     }
                 else:
-                yield {
-                    "type": "tool_call",
-                    "content": f"Calling {tool_name}",
-                    "tool": tool_name,
-                    "params": params
-                }
-                
-                # Execute
-                result = self.tool_executor.execute(tool_name, params)
+                    yield {
+                        "type": "tool_call",
+                        "content": f"Calling {tool_name}",
+                        "tool": tool_name,
+                        "params": params
+                    }
+                    
+                    # Execute
+                    result = self.tool_executor.execute(tool_name, params)
                     
                     # Track tool call
                     self.tool_call_history.append({
@@ -388,7 +388,7 @@ Respond with ONE action only:"""
                 "content": f"Reached safety limit ({self.max_iterations} iterations). Agent did not complete the task."
             }
         else:
-        yield {
+            yield {
             "type": "error",
             "content": f"Reached maximum iterations ({self.max_iterations})"
         }
