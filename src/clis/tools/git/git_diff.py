@@ -29,7 +29,7 @@ class GitDiffTool(Tool):
             "properties": {
                 "file": {
                     "type": "string",
-                    "description": "Specific file to show diff for"
+                    "description": "Specific file path to show diff for (relative to git root)"
                 },
                 "staged": {
                     "type": "boolean",
@@ -45,7 +45,8 @@ class GitDiffTool(Tool):
                     "default": 3,
                     "description": "Number of context lines"
                 }
-            }
+            },
+            "required": []
         }
     
     def execute(self, file: Optional[str] = None, staged: bool = False,
