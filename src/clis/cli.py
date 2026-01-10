@@ -19,6 +19,118 @@ from clis.safety import SafetyMiddleware
 from clis.utils.platform import get_clis_dir, get_platform
 
 
+def execute_query_interactive(query: str, verbose: bool = False, minimal: bool = False, debug: bool = False) -> None:
+    """
+    Execute a query in interactive mode (step-by-step execution).
+    
+    Args:
+        query: User's natural language query
+        verbose: Enable verbose output
+        minimal: Enable minimal output
+        debug: Enable debug output
+    """
+    try:
+        # Initialize components
+        config_manager = ConfigManager()
+        
+        # Check if config exists
+        if not config_manager.config_exists():
+            click.echo("⚠️  Configuration not found. Please run 'clis init' first.", err=True)
+            sys.exit(1)
+        
+        # Set output level
+        if debug:
+            config_manager.set_config_value("output.level", "debug")
+        elif verbose:
+            config_manager.set_config_value("output.level", "verbose")
+        elif minimal:
+            config_manager.set_config_value("output.level", "minimal")
+        
+        formatter = OutputFormatter(config_manager)
+        
+        # Import interactive agent
+        from clis.agent.interactive_agent import InteractiveAgent
+        from clis.tools import (
+            ListFilesTool, ReadFileTool, ExecuteCommandTool, GitStatusTool, DockerPsTool,
+            SearchFilesTool, FileTreeTool, WriteFileTool, GetFileInfoTool,
+            GitDiffTool, GitLogTool,
+            DockerLogsTool, DockerInspectTool, DockerStatsTool,
+            SystemInfoTool, CheckCommandTool, GetEnvTool, ListProcessesTool,
+            HttpRequestTool, CheckPortTool
+        )
+        
+        # Initialize tools
+        tools = [
+            ListFilesTool(), ReadFileTool(), ExecuteCommandTool(), GitStatusTool(), DockerPsTool(),
+            SearchFilesTool(), FileTreeTool(), WriteFileTool(), GetFileInfoTool(),
+            GitDiffTool(), GitLogTool(),
+            DockerLogsTool(), DockerInspectTool(), DockerStatsTool(),
+            SystemInfoTool(), CheckCommandTool(), GetEnvTool(), ListProcessesTool(),
+            HttpRequestTool(), CheckPortTool()
+        ]
+        
+        # Configure file chunker for ReadFileTool
+        llm_config = config_manager.load_llm_config()
+        if llm_config.model.context.auto_chunk:
+            from clis.tools.filesystem.file_chunker import FileChunker
+            chunker = FileChunker.from_config(llm_config.model.context)
+            for tool in tools:
+                if isinstance(tool, ReadFileTool):
+                    tool.set_chunker(chunker)
+                    break
+        
+        # Initialize interactive agent
+        agent = InteractiveAgent(
+            config_manager=config_manager,
+            tools=tools,
+            max_steps=20,
+            auto_approve_readonly=True
+        )
+        
+        # Display header
+        formatter.show_info("🤖 Interactive Mode - Step-by-step execution")
+        formatter.show_info(f"Query: {query}\n")
+        formatter.show_info("⏳ Starting interactive execution...")
+        
+        # Execute interactively
+        try:
+            results = agent.execute_interactive(query)
+            formatter.show_info(f"✓ Got {len(results)} steps\n")
+        except Exception as e:
+            formatter.show_error(f"❌ Error during execution: {e}")
+            if debug:
+                import traceback
+                traceback.print_exc()
+            sys.exit(1)
+        
+        # Process results
+        step_number = 0
+        for step in results:
+            step_number += 1
+            
+            # Display step
+            _display_interactive_step(step, formatter, verbose or debug)
+            
+            # Handle confirmation
+            if step.needs_confirmation:
+                if not _confirm_interactive_step(step, formatter):
+                    formatter.show_warning("\n❌ Execution cancelled by user")
+                    sys.exit(0)
+        
+        # Summary
+        formatter.show_info(f"\n✅ Completed in {step_number} steps")
+        
+    except KeyboardInterrupt:
+        click.echo("\n⚠️  Interrupted by user", err=True)
+        sys.exit(130)
+    except Exception as e:
+        click.echo(f"\n❌ Error: {e}", err=True)
+        if debug:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
 def execute_query(query: str, verbose: bool = False, minimal: bool = False, debug: bool = False, tool_calling: bool = False) -> None:
     """
     Execute a natural language query.
@@ -181,27 +293,33 @@ def main(ctx: click.Context, verbose: bool, minimal: bool, debug: bool) -> None:
 @main.command()
 @click.argument("query")
 @click.option("--no-tool-calling", is_flag=True, help="Disable tool calling mode (use standard mode)")
+@click.option("--interactive", "-i", is_flag=True, help="Use interactive mode (step-by-step execution)")
 @click.pass_context
-def run(ctx: click.Context, query: str, no_tool_calling: bool) -> None:
+def run(ctx: click.Context, query: str, no_tool_calling: bool, interactive: bool) -> None:
     """
     Execute a natural language query.
     
     Tool calling mode is enabled by default for better accuracy.
     Use --no-tool-calling to use standard mode.
+    Use --interactive for step-by-step execution like Cursor/Claude Code.
     
     Examples:
         clis run "show system information"
         clis run "commit code with message: fix bug"
         clis run "commit all Python files" --no-tool-calling
+        clis run "analyze and fix TODOs" --interactive
     """
     verbose = ctx.obj.get("verbose", False)
     minimal = ctx.obj.get("minimal", False)
     debug = ctx.obj.get("debug", False)
     
-    # Tool calling is enabled by default, disabled with --no-tool-calling
-    tool_calling = not no_tool_calling
-    
-    execute_query(query, verbose, minimal, debug, tool_calling)
+    # Interactive mode takes precedence
+    if interactive:
+        execute_query_interactive(query, verbose, minimal, debug)
+    else:
+        # Tool calling is enabled by default, disabled with --no-tool-calling
+        tool_calling = not no_tool_calling
+        execute_query(query, verbose, minimal, debug, tool_calling)
 
 
 @main.command()
@@ -1396,6 +1514,69 @@ Generate commands based on the user's request.
                     formatter.show_info(f"     Error: {call['error']}")
     
     return commands, explanation
+
+
+def _display_interactive_step(step, formatter, show_thinking: bool = False):
+    """Display a single interactive step."""
+    # Skip thinking steps if not showing
+    if step.action_type == "thinking" and not show_thinking:
+        return
+    
+    # Choose icon
+    icons = {
+        "tool_call": "🔧",
+        "command": "⚡",
+        "thinking": "💭"
+    }
+    icon = icons.get(step.action_type, "•")
+    
+    # Display step header
+    if step.action_type == "thinking":
+        formatter.show_info(f"\n{icon} Step {step.step_number}: Thinking")
+        formatter.show_info(f"   {step.description}")
+    elif step.action_type == "tool_call":
+        formatter.show_info(f"\n{icon} Step {step.step_number}: Tool Call")
+        formatter.show_info(f"   {step.description}")
+        if step.success:
+            formatter.show_info("   ✓ Executed automatically (read-only)")
+        else:
+            formatter.show_error(f"   ✗ Failed: {step.error}")
+    elif step.action_type == "command":
+        formatter.show_info(f"\n{icon} Step {step.step_number}: Command")
+        formatter.show_info(f"   {step.description}")
+        if step.needs_confirmation:
+            formatter.show_warning(f"   ⚠ Requires confirmation (risk: {step.risk_level})")
+        else:
+            formatter.show_info("   ✓ Auto-approved (low risk)")
+    
+    # Display output if available
+    if step.output and len(step.output) > 0:
+        # Truncate long output
+        output = step.output[:300]
+        if len(step.output) > 300:
+            output += "\n... (truncated)"
+        
+        formatter.show_info(f"\n   Output:")
+        for line in output.split('\n'):
+            formatter.show_info(f"   │ {line}")
+
+
+def _confirm_interactive_step(step, formatter) -> bool:
+    """Ask user to confirm a step."""
+    formatter.show_warning(f"\n{'!'*60}")
+    formatter.show_warning("CONFIRMATION REQUIRED")
+    formatter.show_warning(f"{'!'*60}")
+    formatter.show_warning(f"Risk Level: {step.risk_level.upper()}")
+    formatter.show_info(f"Action: {step.description}")
+    
+    response = click.prompt(
+        "\nApprove this action? [y/N]",
+        type=str,
+        default="N",
+        show_default=False
+    ).lower().strip()
+    
+    return response in ['y', 'yes']
 
 
 if __name__ == "__main__":
