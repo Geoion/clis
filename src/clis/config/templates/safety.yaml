@@ -145,22 +145,6 @@ logging:
   # Include risk scores | 包含风险分数
   include_risk_score: true
 
-# Agent Configuration | Agent 配置
-agent:
-  # Maximum iterations for ReAct agent | ReAct Agent 最大迭代次数
-  # Options: "auto" (automatic based on task) or integer (e.g., 20, 30, 50)
-  # 选项："auto"（根据任务自动计算）或整数（例如：20、30、50）
-  max_iterations: auto
-  
-  # Base iterations when auto mode is enabled | 自动模式下的基础迭代次数
-  # Used for simple tasks
-  # 用于简单任务
-  auto_iterations_base: 20
-  
-  # Additional iterations per file in batch tasks | 批量任务中每个文件的额外迭代次数
-  # For tasks like "commit each file separately"
-  # 用于"逐个提交文件"等任务
-  auto_iterations_per_file: 5
 
 # Context Management | 上下文管理
 context_management:
@@ -194,3 +178,24 @@ auto_approve:
   
   # Record all auto-approve decisions | 记录所有自动批准决策
   record_decisions: true
+
+# Agent Configuration | Agent 配置
+agent:
+  # Maximum iterations for ReAct agent | ReAct Agent 最大迭代次数
+  # Options: 
+  #   - "auto": Agent自己决定何时结束 (推荐)
+  #   - integer: 固定迭代次数上限 (如 20, 30, 50)
+  # 选项：
+  #   - "auto"：Agent 自己判断任务完成 (推荐)
+  #   - 整数：固定的迭代次数上限（例如：20、30、50）
+  max_iterations: auto
+  
+  # Safety limit for auto mode | 自动模式的安全上限
+  # Prevents infinite loops when Agent doesn't stop properly
+  # 防止 Agent 无法正常停止时的无限循环
+  auto_iterations_base: 100
+  
+  # Note: auto_iterations_per_file is deprecated
+  # In auto mode, Agent decides when to stop based on task completion
+  # 注意：auto_iterations_per_file 已废弃
+  # 在 auto 模式下，Agent 根据任务完成情况自己决定何时停止
