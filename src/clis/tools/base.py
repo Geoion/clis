@@ -47,6 +47,19 @@ class Tool(ABC):
         """Tool parameters schema (JSON Schema format)."""
         pass
     
+    @property
+    def is_readonly(self) -> bool:
+        """
+        Whether this tool is read-only (safe to execute in parallel).
+        
+        Read-only tools don't modify system state and can be executed
+        concurrently. Write tools modify state and must be executed serially.
+        
+        Returns:
+            True if tool is read-only, False otherwise
+        """
+        return True  # Default to read-only for safety
+    
     @abstractmethod
     def execute(self, **kwargs) -> ToolResult:
         """
@@ -65,7 +78,8 @@ class Tool(ABC):
         return {
             "name": self.name,
             "description": self.description,
-            "parameters": self.parameters
+            "parameters": self.parameters,
+            "is_readonly": self.is_readonly
         }
 
 
