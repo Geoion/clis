@@ -4,7 +4,10 @@ Base classes for tool calling system.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from clis.tools.base import Tool
 
 
 @dataclass
@@ -124,6 +127,18 @@ class ToolExecutor:
                 output="",
                 error=f"Tool execution failed: {str(e)}"
             )
+    
+    def get_tool(self, tool_name: str) -> Optional[Tool]:
+        """
+        Get a tool by name.
+        
+        Args:
+            tool_name: Name of the tool
+            
+        Returns:
+            Tool instance or None if not found
+        """
+        return self.tools.get(tool_name)
     
     def get_tool_definitions(self) -> List[Dict[str, Any]]:
         """Get all tool definitions for LLM."""
