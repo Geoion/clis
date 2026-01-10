@@ -77,28 +77,37 @@ class InteractiveAgent:
         platform = get_platform()
         shell = get_shell()
         
-        # Build tool call history summary
-        tool_history_summary = ""
-        if self.tool_call_history:
-            recent_calls = self.tool_call_history[-5:]
-            tool_history_summary = "\n\n🚫 ALREADY CALLED (DON'T REPEAT):\n"
-            for call in recent_calls:
-                tool_history_summary += f"- {call['tool']}({call['params']})\n"
-            tool_history_summary += "\n⚠️ If you call these again, you will FAIL!\n"
-        
-        # Analyze task type
+        # Analyze task type (once)
         task_analysis = self._analyze_task(query)
         
-        system_prompt = f"""You are a command-line assistant. Platform: {platform}, Shell: {shell}
+        # Build base system prompt template (will be updated each iteration)
+        def build_system_prompt() -> str:
+            # Build tool call history summary (DYNAMIC - updates each iteration)
+            tool_history_summary = ""
+            if self.tool_call_history:
+                recent_calls = self.tool_call_history[-5:]
+                tool_history_summary = "\n\n📋 RECENT ACTIONS:\n"
+                for i, call in enumerate(recent_calls, 1):
+                    status = "✓" if call.get('success', True) else "✗"
+                    tool_history_summary += f"{i}. {status} {call['tool']}({call['params']})\n"
+                
+                # Check for loops
+                if len(recent_calls) >= 2:
+                    last_call = f"{recent_calls[-1]['tool']}({recent_calls[-1]['params']})"
+                    second_last = f"{recent_calls[-2]['tool']}({recent_calls[-2]['params']})"
+                    if last_call == second_last:
+                        tool_history_summary += "\n⚠️ WARNING: You're repeating the same call! Do something different!\n"
+            
+            return f"""You are a command-line assistant. Platform: {platform}, Shell: {shell}
 
 Available tools: {', '.join([t.name for t in self.tools])}
 
 🚨 CRITICAL RULES (VIOLATION = FAILURE):
-1. ⚠️ NEVER EVER repeat a tool call you already made
-2. ⚠️ Check "ALREADY CALLED" list below - DON'T call those again
-3. ⚠️ If you see duplicate warnings in observations, CHANGE YOUR APPROACH
+1. ⚠️ DON'T call the same tool 3+ times in a row (causes loop)
+2. ⚠️ git_status is OK to call after each commit (to see remaining files)
+3. ⚠️ If you see "LOOP DETECTED" in observations, CHANGE YOUR APPROACH
 4. ⚠️ After iteration 3, STOP gathering and START executing
-5. ⚠️ For batch commits: git_add → git_commit → move to NEXT file
+5. ⚠️ For batch commits: git_add → git_commit → git_status → next file
 6. ⚠️ When task is complete, respond with {{"type": "done", "summary": "..."}}
 
 TASK ANALYSIS:
@@ -141,6 +150,9 @@ OR
             
             # Yield iteration start (always, for counting)
             yield {"type": "iteration_start", "iteration": iteration + 1}
+            
+            # Build system prompt with CURRENT tool history (updates each iteration)
+            system_prompt = build_system_prompt()
             
             # REASON: Ask LLM what to do next (synchronous with optional streaming display)
             if stream_thinking:
@@ -190,20 +202,29 @@ OR
                 tool_name = action.get("tool")
                 params = action.get("params", {})
                 
-                # Check for duplicate tool calls BEFORE executing
+                # Check for problematic duplicate tool calls
+                # Allow: git_status, git_log (查询类工具可以重复)
+                # Detect: 连续3次调用相同的工具且参数相同
                 call_signature = f"{tool_name}({params})"
-                recent_calls = [f"{c['tool']}({c['params']})" for c in self.tool_call_history[-3:]]
                 
-                if call_signature in recent_calls:
-                    # Duplicate detected - record it and add to history to prevent future duplicates
-                    observation = f"⚠️ DUPLICATE CALL DETECTED: {tool_name}. You already called this. DO SOMETHING DIFFERENT!"
+                # 只检查最近的连续调用
+                recent_same_calls = []
+                for call in reversed(self.tool_call_history[-3:]):
+                    call_sig = f"{call['tool']}({call['params']})"
+                    if call_sig == call_signature:
+                        recent_same_calls.append(call)
+                    else:
+                        break  # 遇到不同的调用就停止
+                
+                # 如果连续3次都是相同调用,说明陷入循环
+                if len(recent_same_calls) >= 2:
+                    observation = f"⚠️ LOOP DETECTED: You called {tool_name} {len(recent_same_calls)+1} times in a row! CHANGE YOUR APPROACH!"
                     
-                    # CRITICAL: Add to history to prevent checking same duplicate again
                     self.tool_call_history.append({
                         "tool": tool_name,
                         "params": params,
                         "success": False,
-                        "duplicate": True
+                        "loop_detected": True
                     })
                     
                     self.context_manager.add_observation(
@@ -441,30 +462,43 @@ This is a GIT QUERY task:
                     if call.get('tool') == 'git_add'
                 ]
                 
+                # Check last action
+                last_action = self.tool_call_history[-1] if self.tool_call_history else None
+                last_tool = last_action.get('tool') if last_action else None
+                
                 if not committed_files:
                     if not added_files:
                         return """
 🚨 CRITICAL: You should be executing by now!
-EXACT NEXT STEP: git_add(files=["src/clis/agent/agent.py"])
-Then: git_commit(message="Add Generator import and streaming support")
-DON'T call git_diff or git_status again!
+NEXT STEP: git_add(files=["src/clis/agent/interactive_agent.py"])
+DON'T call git_status again - you already know the file list!
 """
                     else:
                         return """
 🚨 You staged a file but didn't commit!
-EXACT NEXT STEP: git_commit(message="your commit message here")
+NEXT STEP: git_commit(message="your commit message here")
 """
                 else:
-                    # Get the last committed file to avoid repeating
-                    last_commit_call = [c for c in self.tool_call_history if c.get('tool') == 'git_commit'][-1]
-                    
-                    return f"""
+                    # Already committed some files
+                    if last_tool == 'git_commit':
+                        return f"""
 ✅ Good! You've committed {len(committed_files)} file(s).
-NEXT STEPS:
-1. Call git_status to see remaining files
-2. Pick a DIFFERENT file (not the one you just committed)
-3. git_add(files=["new_file.py"]) → git_commit(message="...")
-4. If no more files, respond with {{"type": "done", "summary": "Committed {len(committed_files)} files"}}
+NEXT STEP: git_status (to see remaining files)
+"""
+                    elif last_tool == 'git_status':
+                        return f"""
+✅ You checked status. Now pick the NEXT file.
+NEXT STEP: git_add(files=["different_file.py"]) 
+Pick a file you haven't committed yet!
+"""
+                    elif last_tool == 'git_add':
+                        return """
+NEXT STEP: git_commit(message="your message")
+"""
+                    else:
+                        return f"""
+Continue the cycle: git_add → git_commit → git_status → repeat
+Or if done: {{"type": "done", "summary": "Committed {len(committed_files)} files"}}
 """
         
         # 其他任务类型
