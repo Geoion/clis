@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional, Generator
 from clis.agent.agent import Agent
 from clis.agent.context_manager import ContextManager, ObservationType
 from clis.config import ConfigManager
+from clis.safety.risk_scorer import RiskScorer
 from clis.tools.base import Tool, ToolExecutor
 from clis.utils.logger import get_logger
 from clis.utils.platform import get_platform, get_shell
@@ -41,6 +42,7 @@ class InteractiveAgent:
         self.agent = Agent(self.config_manager)
         self.tools = tools or []
         self.tool_executor = ToolExecutor(self.tools)
+        self.risk_scorer = RiskScorer(self.config_manager)
         
         # Load max_iterations from config if not specified
         if max_iterations is None:
@@ -61,7 +63,7 @@ class InteractiveAgent:
                 self.max_iterations = 20
         else:
             self.auto_mode = False
-        self.max_iterations = max_iterations
+            self.max_iterations = max_iterations
         
         # Intelligent context management
         self.context_manager = ContextManager(self.config_manager)
@@ -147,12 +149,19 @@ CRITICAL:
 - After committing all target files, IMMEDIATELY respond with {{"type": "done"}}
 
 TOOL USAGE:
-- git_status: Check current git status (call ONCE)
+- git_status: Check current git status
 - git_diff: View file changes for ONE file at a time
 - git_add: Stage ONE file: git_add(files=["path/to/file.py"])
 - git_commit: Commit staged file: git_commit(message="description")
-- file_tree: See directory structure (call ONCE)
-- read_file: Read file content (if you need to understand changes)
+- file_tree: See directory structure
+- read_file: Read file content
+- write_file: Write content to file (requires confirmation)
+- delete_file: Delete file (requires confirmation) - USE THIS instead of "rm" command
+- execute_command: Execute shell command (use ONLY when no specific tool available)
+
+⚠️ IMPORTANT: 
+- For file deletion, use delete_file tool, NOT execute_command with "rm"
+- For file writing, use write_file tool, NOT execute_command with "echo" or ">"
 {tool_history_summary}
 
 FORMAT (respond with ONLY ONE action):
@@ -272,12 +281,22 @@ OR
                         "success": False
                     }
                 else:
+                    # Check if tool requires confirmation
+                    tool = self.tool_executor.get_tool(tool_name)
+                    requires_confirmation = getattr(tool, 'requires_confirmation', False) if tool else False
+                    
                     yield {
                         "type": "tool_call",
                         "content": f"Calling {tool_name}",
                         "tool": tool_name,
-                        "params": params
+                        "params": params,
+                        "requires_confirmation": requires_confirmation
                     }
+                    
+                    # If tool requires confirmation, wait for user approval
+                    if requires_confirmation:
+                        # Caller (CLI) will handle confirmation
+                        return
                     
                     # Execute
                     result = self.tool_executor.execute(tool_name, params)
@@ -297,24 +316,43 @@ OR
                         is_critical=not result.success,
                         tool_name=tool_name
                     )
-                
-                yield {
-                    "type": "tool_result",
-                    "content": result.output[:500],
-                    "success": result.success
-                }
+                    
+                    yield {
+                        "type": "tool_result",
+                        "content": result.output[:500],
+                        "success": result.success
+                    }
                 
             elif action_type == "command":
-                # Command - may need confirmation
+                # Command - evaluate risk and may need confirmation
                 command = action.get("command")
-                risk = action.get("risk", "medium")
                 
-                needs_confirm = risk in ["medium", "high"]
+                # Evaluate risk using risk scorer
+                risk_score = self.risk_scorer.score(command)
+                risk_level = self.risk_scorer.get_risk_level(risk_score)
+                
+                # Determine if confirmation is needed
+                needs_confirm = risk_level in ["medium", "high", "critical"]
+                
+                if risk_level == "critical":
+                    # Block critical commands
+                    error_msg = f"Command blocked due to critical risk: {command}"
+                    self.context_manager.add_observation(
+                        content=error_msg,
+                        obs_type=ObservationType.ERROR,
+                        is_critical=True
+                    )
+                    yield {
+                        "type": "error",
+                        "content": error_msg
+                    }
+                    continue
                 
                 yield {
                     "type": "command",
                     "content": command,
-                    "risk": risk,
+                    "risk": risk_level,
+                    "risk_score": risk_score,
                     "needs_confirmation": needs_confirm
                 }
                 
@@ -323,7 +361,7 @@ OR
                     # Caller will handle this and call execute_command()
                     return
                 
-                # Execute command
+                # Execute command (low risk, auto-approved)
                 result = self.tool_executor.execute("execute_command", {"command": command})
                 
                 # Add to context manager
@@ -405,6 +443,16 @@ Respond with ONE action only:"""
         """
         query_lower = query.lower()
         
+        # 检测删除任务
+        if any(kw in query_lower for kw in ["delete", "remove", "rm", "删除"]):
+            return """
+This is a FILE DELETION task:
+- SIMPLE and DIRECT - just delete the file
+- Step 1: delete_file(path="...") - that's it!
+- DON'T call git_status, get_file_info, or other checks
+- After deletion, immediately respond with {"type": "done"}
+"""
+        
         # 检测批量提交任务
         if "commit" in query_lower:
             if any(kw in query_lower for kw in ["one by one", "逐个", "each file", "separately"]):
@@ -469,6 +517,20 @@ This is a GIT QUERY task:
             下一步行动建议
         """
         query_lower = query.lower()
+        
+        # 检测删除任务
+        if any(kw in query_lower for kw in ["delete", "remove", "rm", "删除"]):
+            if iteration == 1:
+                return """
+This is a simple deletion task.
+NEXT STEP: delete_file(path="exact/path/from/query")
+DON'T call any other tools - just delete the file!
+"""
+            else:
+                return """
+You should have deleted the file by now!
+If deletion succeeded, respond with {"type": "done", "summary": "File deleted"}
+"""
         
         # 提取目标文件类型
         target_file_type = None
@@ -559,6 +621,55 @@ This is a GIT QUERY task:
             return "You've gathered enough info. Execute the task now!"
         
         return "Gather necessary information, then execute."
+    
+    def execute_tool(self, tool_name: str, params: Dict[str, Any], approved: bool = True) -> Dict[str, Any]:
+        """
+        Execute a tool after user confirmation.
+        
+        Args:
+            tool_name: Tool name
+            params: Tool parameters
+            approved: Whether user approved the operation
+            
+        Returns:
+            Result dictionary
+        """
+        if not approved:
+            # Record rejection
+            self.context_manager.add_observation(
+                content=f"User rejected tool: {tool_name}",
+                obs_type=ObservationType.REJECTION,
+                is_critical=True
+            )
+            return {
+                "type": "tool_result",
+                "content": "Tool execution rejected by user",
+                "success": False
+            }
+        
+        result = self.tool_executor.execute(tool_name, params)
+        
+        # Add to context manager
+        obs_type = ObservationType.ERROR if not result.success else ObservationType.TOOL_RESULT
+        self.context_manager.add_observation(
+            content=f"Tool '{tool_name}' result: {result.output[:500]}",
+            obs_type=obs_type,
+            is_critical=not result.success,
+            tool_name=tool_name
+        )
+        
+        # Track tool call
+        self.tool_call_history.append({
+            "tool": tool_name,
+            "params": params,
+            "success": result.success
+        })
+        
+        return {
+            "type": "tool_result",
+            "content": result.output[:500],
+            "success": result.success
+        }
     
     def execute_command(self, command: str, approved: bool = True) -> Dict[str, Any]:
         """
