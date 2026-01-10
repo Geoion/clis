@@ -48,12 +48,12 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
         
         formatter = OutputFormatter(config_manager)
         
-        # Import interactive agent
+        # Import interactive agent (ReAct pattern)
         from clis.agent.interactive_agent import InteractiveAgent
         from clis.tools import (
             ListFilesTool, ReadFileTool, ExecuteCommandTool, GitStatusTool, DockerPsTool,
             SearchFilesTool, FileTreeTool, WriteFileTool, GetFileInfoTool,
-            GitDiffTool, GitLogTool,
+            GitAddTool, GitCommitTool, GitDiffTool, GitLogTool,
             DockerLogsTool, DockerInspectTool, DockerStatsTool,
             SystemInfoTool, CheckCommandTool, GetEnvTool, ListProcessesTool,
             HttpRequestTool, CheckPortTool
@@ -63,7 +63,7 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
         tools = [
             ListFilesTool(), ReadFileTool(), ExecuteCommandTool(), GitStatusTool(), DockerPsTool(),
             SearchFilesTool(), FileTreeTool(), WriteFileTool(), GetFileInfoTool(),
-            GitDiffTool(), GitLogTool(),
+            GitAddTool(), GitCommitTool(), GitDiffTool(), GitLogTool(),
             DockerLogsTool(), DockerInspectTool(), DockerStatsTool(),
             SystemInfoTool(), CheckCommandTool(), GetEnvTool(), ListProcessesTool(),
             HttpRequestTool(), CheckPortTool()
@@ -79,46 +79,119 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                     tool.set_chunker(chunker)
                     break
         
-        # Initialize interactive agent
+        # Initialize interactive agent (ReAct pattern)
+        # max_iterations will be loaded from config (default: auto)
         agent = InteractiveAgent(
             config_manager=config_manager,
-            tools=tools,
-            max_steps=20,
-            auto_approve_readonly=True
+            tools=tools
         )
         
         # Display header
-        formatter.show_info("🤖 Interactive Mode - Step-by-step execution")
+        formatter.show_info("🤖 ReAct Mode - Reasoning and Acting step-by-step")
         formatter.show_info(f"Query: {query}\n")
-        formatter.show_info("⏳ Starting interactive execution...")
         
-        # Execute interactively
+        # Execute interactively (ReAct: Reason → Act → Observe loop)
+        step_number = 0
+        iteration_number = 0
+        
         try:
-            results = agent.execute_interactive(query)
-            formatter.show_info(f"✓ Got {len(results)} steps\n")
+            for step in agent.execute(query):
+                step_type = step.get("type")
+                
+                # Display step based on type
+                if step_type == "iteration_start":
+                    iteration_number = step.get("iteration", iteration_number + 1)
+                    # Don't display anything, just track the count
+                
+                elif step_type == "thinking_start":
+                    if verbose or debug:
+                        print(f"\n💭 Iteration {iteration_number}: Thinking...")
+                
+                elif step_type == "thinking_chunk":
+                    # Stream thinking process
+                    if verbose or debug:
+                        print(step.get("content"), end="", flush=True)
+                
+                elif step_type == "thinking_end":
+                    if verbose or debug:
+                        print()  # New line after streaming
+                
+                elif step_type == "tool_call":
+                    step_number += 1
+                    print(f"\n🔧 Step {step_number}: Calling {step.get('tool')}")
+                    params = step.get('params', {})
+                    if params:
+                        print(f"    Parameters: {params}")
+                
+                elif step_type == "tool_result":
+                    # 修复: 不要仅依赖 success 标志,检查是否有实际输出
+                    content = step.get('content', '')
+                    has_content = bool(content and content.strip())
+                    
+                    if step.get('success') or has_content:
+                        result_preview = content[:200] if content else "Success"
+                        if len(content) > 200:
+                            result_preview += "..."
+                        print(f"    ✓ {result_preview}")
+                    else:
+                        print(f"    ✗ Failed")
+                
+                elif step_type == "command":
+                    step_number += 1
+                    print(f"\n⚡ Step {step_number}: Execute command")
+                    print(f"    Command: {step['content']}")
+                    print(f"    Risk: {step['risk']}")
+                    
+                    if step.get('needs_confirmation'):
+                        # Ask for confirmation
+                        response = click.prompt(
+                            "\n    Approve? [y/N]",
+                            type=str,
+                            default="N"
+                        ).lower().strip()
+                        
+                        approved = response in ['y', 'yes']
+                        
+                        if not approved:
+                            # Record rejection and continue (don't exit)
+                            result = agent.execute_command(step['content'], approved=False)
+                            formatter.show_warning(f"\n⚠️  {result['content']}")
+                            # Continue to next iteration instead of exiting
+                            continue
+                        
+                        # Execute after approval
+                        result = agent.execute_command(step['content'], approved=True)
+                        if result['success']:
+                            result_preview = result['content'][:200]
+                            if len(result['content']) > 200:
+                                result_preview += "..."
+                            print(f"    ✓ {result_preview}")
+                        else:
+                            print(f"    ✗ Failed")
+                
+                elif step_type == "command_result":
+                    if step['success']:
+                        result_preview = step['content'][:200]
+                        if len(step['content']) > 200:
+                            result_preview += "..."
+                        print(f"    ✓ {result_preview}")
+                    else:
+                        print(f"    ✗ Failed")
+                
+                elif step_type == "complete":
+                    print(f"\n✅ {step['content']}")
+                
+                elif step_type == "error":
+                    formatter.show_error(f"\n❌ {step['content']}")
+            
+            print(f"\n✅ Completed: {step_number} actions in {iteration_number} iterations")
+        
         except Exception as e:
-            formatter.show_error(f"❌ Error during execution: {e}")
+            formatter.show_error(f"\n❌ Error during execution: {e}")
             if debug:
                 import traceback
                 traceback.print_exc()
             sys.exit(1)
-        
-        # Process results
-        step_number = 0
-        for step in results:
-            step_number += 1
-            
-            # Display step
-            _display_interactive_step(step, formatter, verbose or debug)
-            
-            # Handle confirmation
-            if step.needs_confirmation:
-                if not _confirm_interactive_step(step, formatter):
-                    formatter.show_warning("\n❌ Execution cancelled by user")
-                    sys.exit(0)
-        
-        # Summary
-        formatter.show_info(f"\n✅ Completed in {step_number} steps")
         
     except KeyboardInterrupt:
         click.echo("\n⚠️  Interrupted by user", err=True)
@@ -293,33 +366,33 @@ def main(ctx: click.Context, verbose: bool, minimal: bool, debug: bool) -> None:
 @main.command()
 @click.argument("query")
 @click.option("--no-tool-calling", is_flag=True, help="Disable tool calling mode (use standard mode)")
-@click.option("--interactive", "-i", is_flag=True, help="Use interactive mode (step-by-step execution)")
 @click.pass_context
-def run(ctx: click.Context, query: str, no_tool_calling: bool, interactive: bool) -> None:
+def run(ctx: click.Context, query: str, no_tool_calling: bool) -> None:
     """
     Execute a natural language query.
     
-    Tool calling mode is enabled by default for better accuracy.
-    Use --no-tool-calling to use standard mode.
-    Use --interactive for step-by-step execution like Cursor/Claude Code.
+    Tool calling mode is enabled by default with step-by-step execution (ReAct pattern).
+    Use --no-tool-calling to use standard mode (single-shot generation).
     
     Examples:
         clis run "show system information"
         clis run "commit code with message: fix bug"
-        clis run "commit all Python files" --no-tool-calling
-        clis run "analyze and fix TODOs" --interactive
+        clis run "find and fix all TODOs"
+        clis run "list files" --no-tool-calling
     """
     verbose = ctx.obj.get("verbose", False)
     minimal = ctx.obj.get("minimal", False)
     debug = ctx.obj.get("debug", False)
     
-    # Interactive mode takes precedence
-    if interactive:
+    # Tool calling is enabled by default (ReAct mode)
+    tool_calling = not no_tool_calling
+    
+    if tool_calling:
+        # Use ReAct mode (step-by-step with tools)
         execute_query_interactive(query, verbose, minimal, debug)
     else:
-        # Tool calling is enabled by default, disabled with --no-tool-calling
-        tool_calling = not no_tool_calling
-        execute_query(query, verbose, minimal, debug, tool_calling)
+        # Use standard mode (single-shot)
+        execute_query(query, verbose, minimal, debug, tool_calling=False)
 
 
 @main.command()
@@ -1514,69 +1587,6 @@ Generate commands based on the user's request.
                     formatter.show_info(f"     Error: {call['error']}")
     
     return commands, explanation
-
-
-def _display_interactive_step(step, formatter, show_thinking: bool = False):
-    """Display a single interactive step."""
-    # Skip thinking steps if not showing
-    if step.action_type == "thinking" and not show_thinking:
-        return
-    
-    # Choose icon
-    icons = {
-        "tool_call": "🔧",
-        "command": "⚡",
-        "thinking": "💭"
-    }
-    icon = icons.get(step.action_type, "•")
-    
-    # Display step header
-    if step.action_type == "thinking":
-        formatter.show_info(f"\n{icon} Step {step.step_number}: Thinking")
-        formatter.show_info(f"   {step.description}")
-    elif step.action_type == "tool_call":
-        formatter.show_info(f"\n{icon} Step {step.step_number}: Tool Call")
-        formatter.show_info(f"   {step.description}")
-        if step.success:
-            formatter.show_info("   ✓ Executed automatically (read-only)")
-        else:
-            formatter.show_error(f"   ✗ Failed: {step.error}")
-    elif step.action_type == "command":
-        formatter.show_info(f"\n{icon} Step {step.step_number}: Command")
-        formatter.show_info(f"   {step.description}")
-        if step.needs_confirmation:
-            formatter.show_warning(f"   ⚠ Requires confirmation (risk: {step.risk_level})")
-        else:
-            formatter.show_info("   ✓ Auto-approved (low risk)")
-    
-    # Display output if available
-    if step.output and len(step.output) > 0:
-        # Truncate long output
-        output = step.output[:300]
-        if len(step.output) > 300:
-            output += "\n... (truncated)"
-        
-        formatter.show_info(f"\n   Output:")
-        for line in output.split('\n'):
-            formatter.show_info(f"   │ {line}")
-
-
-def _confirm_interactive_step(step, formatter) -> bool:
-    """Ask user to confirm a step."""
-    formatter.show_warning(f"\n{'!'*60}")
-    formatter.show_warning("CONFIRMATION REQUIRED")
-    formatter.show_warning(f"{'!'*60}")
-    formatter.show_warning(f"Risk Level: {step.risk_level.upper()}")
-    formatter.show_info(f"Action: {step.description}")
-    
-    response = click.prompt(
-        "\nApprove this action? [y/N]",
-        type=str,
-        default="N",
-        show_default=False
-    ).lower().strip()
-    
-    return response in ['y', 'yes']
 
 
 if __name__ == "__main__":
