@@ -35,6 +35,8 @@ from clis.tools.filesystem.file_chunker import (
 
 # Git tools
 from clis.tools.git import (
+    GitAddTool,
+    GitCommitTool,
     GitDiffTool,
     GitLogTool,
 )
@@ -83,6 +85,8 @@ __all__ = [
     "MODEL_PRESETS",
     "get_model_preset",
     # Git
+    "GitAddTool",
+    "GitCommitTool",
     "GitDiffTool",
     "GitLogTool",
     # Docker

@@ -144,3 +144,53 @@ logging:
   
   # Include risk scores | 包含风险分数
   include_risk_score: true
+
+# Agent Configuration | Agent 配置
+agent:
+  # Maximum iterations for ReAct agent | ReAct Agent 最大迭代次数
+  # Options: "auto" (automatic based on task) or integer (e.g., 20, 30, 50)
+  # 选项："auto"（根据任务自动计算）或整数（例如：20、30、50）
+  max_iterations: auto
+  
+  # Base iterations when auto mode is enabled | 自动模式下的基础迭代次数
+  # Used for simple tasks
+  # 用于简单任务
+  auto_iterations_base: 20
+  
+  # Additional iterations per file in batch tasks | 批量任务中每个文件的额外迭代次数
+  # For tasks like "commit each file separately"
+  # 用于"逐个提交文件"等任务
+  auto_iterations_per_file: 5
+
+# Context Management | 上下文管理
+context_management:
+  # Enable intelligent context management | 启用智能上下文管理
+  enabled: true
+  
+  # Maximum observations to keep | 保留的最大观察数量
+  max_observations: 10
+  
+  # Compress when observations exceed this | 当观察超过此数量时压缩
+  compression_threshold: 5
+  
+  # Always keep critical observations | 始终保留关键观察
+  keep_critical: true
+  
+  # Always keep N most recent observations | 始终保留最近的 N 个观察
+  keep_recent: 3
+
+# Auto-Approve Configuration | 自动批准配置
+auto_approve:
+  # Enable auto-approve for low-risk operations | 为低风险操作启用自动批准
+  enabled: false
+  
+  # Maximum risk level to auto-approve | 自动批准的最大风险级别
+  # Options: low, medium, high
+  # 选项：low（低）、medium（中）、high（高）
+  max_risk_level: low
+  
+  # Only auto-approve read-only operations | 仅自动批准只读操作
+  readonly_only: true
+  
+  # Record all auto-approve decisions | 记录所有自动批准决策
+  record_decisions: true
