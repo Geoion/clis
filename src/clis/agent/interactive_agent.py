@@ -61,7 +61,7 @@ class InteractiveAgent:
                 self.max_iterations = 20
         else:
             self.auto_mode = False
-            self.max_iterations = max_iterations
+        self.max_iterations = max_iterations
         
         # Intelligent context management
         self.context_manager = ContextManager(self.config_manager)
@@ -134,12 +134,17 @@ TASK ANALYSIS:
 {task_analysis}
 
 EXECUTION STRATEGY FOR BATCH COMMITS:
-Step 1: git_status → get file list
-Step 2: Pick FIRST file → git_diff (if needed)
-Step 3: git_add(files=["first_file.py"])
-Step 4: git_commit(message="...")
-Step 5: Pick NEXT file (DIFFERENT from previous) → repeat steps 3-4
-Step 6: When all files committed → {{"type": "done"}}
+Step 1: git_status → get file list, IDENTIFY target files based on user requirements
+Step 2: For EACH target file:
+   - git_add(files=["file.py"])
+   - git_commit(message="...")
+   - git_status (check remaining)
+Step 3: When ALL TARGET files committed → {{"type": "done", "summary": "..."}}
+
+CRITICAL: 
+- ONLY process files that match user requirements (e.g., "python files" = *.py only)
+- IGNORE files user explicitly excluded (e.g., "DON'T ADD *.md" = skip all .md files)
+- After committing all target files, IMMEDIATELY respond with {{"type": "done"}}
 
 TOOL USAGE:
 - git_status: Check current git status (call ONCE)
@@ -170,7 +175,7 @@ OR
             if self.auto_mode:
                 logger.info(f"Iteration {iteration + 1} (auto mode)")
             else:
-                logger.info(f"Iteration {iteration + 1}/{self.max_iterations}")
+            logger.info(f"Iteration {iteration + 1}/{self.max_iterations}")
             
             # Mark new iteration in context manager
             self.context_manager.next_iteration()
@@ -267,15 +272,15 @@ OR
                         "success": False
                     }
                 else:
-                    yield {
-                        "type": "tool_call",
-                        "content": f"Calling {tool_name}",
-                        "tool": tool_name,
-                        "params": params
-                    }
-                    
-                    # Execute
-                    result = self.tool_executor.execute(tool_name, params)
+                yield {
+                    "type": "tool_call",
+                    "content": f"Calling {tool_name}",
+                    "tool": tool_name,
+                    "params": params
+                }
+                
+                # Execute
+                result = self.tool_executor.execute(tool_name, params)
                     
                     # Track tool call
                     self.tool_call_history.append({
@@ -292,12 +297,12 @@ OR
                         is_critical=not result.success,
                         tool_name=tool_name
                     )
-                    
-                    yield {
-                        "type": "tool_result",
-                        "content": result.output[:500],
-                        "success": result.success
-                    }
+                
+                yield {
+                    "type": "tool_result",
+                    "content": result.output[:500],
+                    "success": result.success
+                }
                 
             elif action_type == "command":
                 # Command - may need confirmation
@@ -383,10 +388,10 @@ Respond with ONE action only:"""
                 "content": f"Reached safety limit ({self.max_iterations} iterations). Agent did not complete the task."
             }
         else:
-            yield {
-                "type": "error",
-                "content": f"Reached maximum iterations ({self.max_iterations})"
-            }
+        yield {
+            "type": "error",
+            "content": f"Reached maximum iterations ({self.max_iterations})"
+        }
     
     def _analyze_task(self, query: str) -> str:
         """
@@ -465,6 +470,22 @@ This is a GIT QUERY task:
         """
         query_lower = query.lower()
         
+        # 提取目标文件类型
+        target_file_type = None
+        if "python files" in query_lower or ".py" in query_lower:
+            target_file_type = "*.py"
+        elif "javascript files" in query_lower or ".js" in query_lower:
+            target_file_type = "*.js"
+        
+        # 提取排除模式
+        excluded_patterns = []
+        if "don't add" in query_lower or "don't commit" in query_lower or "skip" in query_lower:
+            import re
+            # 提取 "DON'T ADD *.md" 中的 *.md
+            exclude_match = re.search(r"don'?t\s+(?:add|commit)\s+([\w\*\.]+)", query_lower)
+            if exclude_match:
+                excluded_patterns.append(exclude_match.group(1))
+        
         # 检测是否是批量提交任务
         is_batch_commit = "commit" in query_lower and any(
             kw in query_lower for kw in ["one by one", "逐个", "each file", "separately"]
@@ -472,22 +493,18 @@ This is a GIT QUERY task:
         
         if is_batch_commit:
             if iteration <= 2:
-                return """
-1. Use git_status to get list of modified files
-2. DON'T call git_diff yet - wait until you have the file list
-"""
-            elif iteration == 3:
-                return """
-1. Now you have the file list
-2. Pick the FIRST file from the list
-3. Use git_diff on that ONE file to see changes
-4. DON'T call git_diff on the same file again!
-"""
-            elif iteration >= 4:
+                hint = "1. Use git_status to get list of modified files\n"
+                if target_file_type:
+                    hint += f"2. IDENTIFY {target_file_type} files ONLY\n"
+                if excluded_patterns:
+                    hint += f"3. EXCLUDE files matching: {', '.join(excluded_patterns)}\n"
+                return hint
+            
+            elif iteration >= 3:
                 # Check what's been done
                 committed_files = [
                     call for call in self.tool_call_history 
-                    if call.get('tool') == 'git_commit'
+                    if call.get('tool') == 'git_commit' and call.get('success', True)
                 ]
                 
                 added_files = [
@@ -501,38 +518,41 @@ This is a GIT QUERY task:
                 
                 if not committed_files:
                     if not added_files:
-                        return """
-🚨 CRITICAL: You should be executing by now!
-NEXT STEP: git_add(files=["src/clis/agent/interactive_agent.py"])
-DON'T call git_status again - you already know the file list!
-"""
+                        hint = "🚨 CRITICAL: Start executing!\n"
+                        if target_file_type:
+                            hint += f"NEXT STEP: git_add(files=[\"path/to/file{target_file_type.replace('*', '')}\"]) - ONLY {target_file_type} files!\n"
+                        else:
+                            hint += "NEXT STEP: git_add(files=[\"path/to/file\"])\n"
+                        return hint
                     else:
-                        return """
-🚨 You staged a file but didn't commit!
-NEXT STEP: git_commit(message="your commit message here")
-"""
+                        return "🚨 You staged a file but didn't commit!\nNEXT STEP: git_commit(message=\"...\")"
                 else:
                     # Already committed some files
                     if last_tool == 'git_commit':
-                        return f"""
-✅ Good! You've committed {len(committed_files)} file(s).
-NEXT STEP: git_status (to see remaining files)
-"""
+                        hint = f"✅ Good! You've committed {len(committed_files)} file(s).\n"
+                        hint += "NEXT STEP: git_status (check remaining TARGET files)\n"
+                        if target_file_type:
+                            hint += f"⚠️ REMEMBER: Only commit {target_file_type} files!\n"
+                        if excluded_patterns:
+                            hint += f"⚠️ EXCLUDE: {', '.join(excluded_patterns)}\n"
+                        hint += f"⚠️ If no more TARGET files, respond with {{\"type\": \"done\", \"summary\": \"Committed {len(committed_files)} files\"}}"
+                        return hint
+                    
                     elif last_tool == 'git_status':
-                        return f"""
-✅ You checked status. Now pick the NEXT file.
-NEXT STEP: git_add(files=["different_file.py"]) 
-Pick a file you haven't committed yet!
-"""
+                        hint = f"✅ You checked status.\n"
+                        if target_file_type:
+                            hint += f"NEXT STEP: Pick NEXT {target_file_type} file and git_add it\n"
+                            hint += f"⚠️ If no more {target_file_type} files, respond with {{\"type\": \"done\"}}"
+                        else:
+                            hint += "NEXT STEP: Pick NEXT file and git_add it\n"
+                            hint += "⚠️ If no more files, respond with {\"type\": \"done\"}"
+                        return hint
+                    
                     elif last_tool == 'git_add':
-                        return """
-NEXT STEP: git_commit(message="your message")
-"""
+                        return "NEXT STEP: git_commit(message=\"...\")"
+                    
                     else:
-                        return f"""
-Continue the cycle: git_add → git_commit → git_status → repeat
-Or if done: {{"type": "done", "summary": "Committed {len(committed_files)} files"}}
-"""
+                        return f"Continue: git_add → git_commit → git_status\nOr if done: {{\"type\": \"done\", \"summary\": \"Committed {len(committed_files)} files\"}}"
         
         # 其他任务类型
         if iteration >= 4:
