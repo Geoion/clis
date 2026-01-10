@@ -86,9 +86,23 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
             tools=tools
         )
         
-        # Display header
-        formatter.show_info("🤖 ReAct Mode - Reasoning and Acting step-by-step")
-        formatter.show_info(f"Query: {query}\n")
+        # Display header with rich
+        from rich.console import Console
+        from rich.panel import Panel
+        from rich.text import Text
+        from rich import box
+        
+        console = Console()
+        
+        # Header - simple and clean
+        console.print(Panel(
+            Text(query, style="bold cyan"),
+            title="[bold blue]🤖 Task[/bold blue]",
+            border_style="blue",
+            box=box.ROUNDED,
+            padding=(0, 1)
+        ))
+        console.print()
         
         # Execute interactively (ReAct: Reason → Act → Observe loop)
         step_number = 0
@@ -105,23 +119,24 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                 
                 elif step_type == "thinking_start":
                     if verbose or debug:
-                        print(f"\n💭 Iteration {iteration_number}: Thinking...")
+                        console.print(f"\n[dim]💭 Iteration {iteration_number}: Thinking...[/dim]")
                 
                 elif step_type == "thinking_chunk":
                     # Stream thinking process
                     if verbose or debug:
-                        print(step.get("content"), end="", flush=True)
+                        console.print(step.get("content"), end="")
                 
                 elif step_type == "thinking_end":
                     if verbose or debug:
-                        print()  # New line after streaming
+                        console.print()  # New line after streaming
                 
                 elif step_type == "tool_call":
                     step_number += 1
-                    print(f"\n🔧 Step {step_number}: Calling {step.get('tool')}")
+                    tool_name = step.get('tool')
+                    console.print(f"\n[bold blue]🔧 Step {step_number}:[/bold blue] [cyan]{tool_name}[/cyan]")
                     params = step.get('params', {})
                     if params:
-                        print(f"    Parameters: {params}")
+                        console.print(f"   [dim]Parameters:[/dim] [yellow]{params}[/yellow]")
                 
                 elif step_type == "tool_result":
                     # 修复: 不要仅依赖 success 标志,检查是否有实际输出
@@ -132,15 +147,18 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                         result_preview = content[:200] if content else "Success"
                         if len(content) > 200:
                             result_preview += "..."
-                        print(f"    ✓ {result_preview}")
+                        console.print(f"   [green]✓[/green] [dim]{result_preview}[/dim]")
                     else:
-                        print(f"    ✗ Failed")
+                        console.print(f"   [red]✗ Failed[/red]")
                 
                 elif step_type == "command":
                     step_number += 1
-                    print(f"\n⚡ Step {step_number}: Execute command")
-                    print(f"    Command: {step['content']}")
-                    print(f"    Risk: {step['risk']}")
+                    console.print(f"\n[bold magenta]⚡ Step {step_number}:[/bold magenta] [yellow]Execute command[/yellow]")
+                    console.print(f"   [dim]Command:[/dim] [white]{step['content']}[/white]")
+                    
+                    risk = step['risk']
+                    risk_color = {"low": "green", "medium": "yellow", "high": "red"}.get(risk, "white")
+                    console.print(f"   [dim]Risk:[/dim] [{risk_color}]{risk}[/{risk_color}]")
                     
                     if step.get('needs_confirmation'):
                         # Ask for confirmation
@@ -155,7 +173,7 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                         if not approved:
                             # Record rejection and continue (don't exit)
                             result = agent.execute_command(step['content'], approved=False)
-                            formatter.show_warning(f"\n⚠️  {result['content']}")
+                            console.print(f"\n[yellow]⚠️  {result['content']}[/yellow]")
                             # Continue to next iteration instead of exiting
                             continue
                         
@@ -165,26 +183,45 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                             result_preview = result['content'][:200]
                             if len(result['content']) > 200:
                                 result_preview += "..."
-                            print(f"    ✓ {result_preview}")
+                            console.print(f"   [green]✓[/green] [dim]{result_preview}[/dim]")
                         else:
-                            print(f"    ✗ Failed")
+                            console.print(f"   [red]✗ Failed[/red]")
                 
                 elif step_type == "command_result":
                     if step['success']:
                         result_preview = step['content'][:200]
                         if len(step['content']) > 200:
                             result_preview += "..."
-                        print(f"    ✓ {result_preview}")
+                        console.print(f"   [green]✓[/green] [dim]{result_preview}[/dim]")
                     else:
-                        print(f"    ✗ Failed")
+                        console.print(f"   [red]✗ Failed[/red]")
                 
                 elif step_type == "complete":
-                    print(f"\n✅ {step['content']}")
+                    console.print()
+                    console.print(Panel(
+                        Text(step['content'], style="bold green"),
+                        title="[bold green]✅ Task Completed[/bold green]",
+                        border_style="green",
+                        box=box.ROUNDED
+                    ))
                 
                 elif step_type == "error":
-                    formatter.show_error(f"\n❌ {step['content']}")
+                    console.print()
+                    console.print(Panel(
+                        Text(step['content'], style="bold red"),
+                        title="[bold red]❌ Error[/bold red]",
+                        border_style="red",
+                        box=box.ROUNDED
+                    ))
             
-            print(f"\n✅ Completed: {step_number} actions in {iteration_number} iterations")
+            # Summary
+            console.print()
+            summary = Text()
+            summary.append("✅ Completed: ", style="bold green")
+            summary.append(f"{step_number} actions", style="cyan")
+            summary.append(" in ", style="dim")
+            summary.append(f"{iteration_number} iterations", style="cyan")
+            console.print(summary)
         
         except Exception as e:
             formatter.show_error(f"\n❌ Error during execution: {e}")
