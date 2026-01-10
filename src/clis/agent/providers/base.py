@@ -4,7 +4,7 @@ Base class for LLM providers.
 
 import json
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Generator, Optional
 
 
 class LLMProvider(ABC):
@@ -58,6 +58,32 @@ class LLMProvider(ABC):
             Generated text
         """
         pass
+
+    def generate_stream(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> Generator[str, None, None]:
+        """
+        Generate text from prompt with streaming (optional).
+        
+        Default implementation falls back to non-streaming generate().
+        Subclasses should override this for true streaming support.
+        
+        Args:
+            prompt: User prompt
+            system_prompt: System prompt
+            temperature: Temperature override
+            max_tokens: Max tokens override
+            
+        Yields:
+            Text chunks as they are generated
+        """
+        # Default fallback: return entire response at once
+        response = self.generate(prompt, system_prompt, temperature, max_tokens)
+        yield response
 
     def parse_json_response(self, response: str) -> Dict[str, Any]:
         """
