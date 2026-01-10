@@ -45,6 +45,11 @@ class WriteFileTool(Tool):
             "required": ["path", "content"]
         }
     
+    @property
+    def is_readonly(self) -> bool:
+        """Write operations modify files, so not readonly."""
+        return False
+    
     def execute(self, path: str, content: str, mode: str = "write") -> ToolResult:
         """Execute write file."""
         try:
