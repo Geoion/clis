@@ -107,9 +107,13 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
         # Execute interactively (ReAct: Reason → Act → Observe loop)
         step_number = 0
         iteration_number = 0
+        thinking_buffer = ""  # Buffer to collect thinking content
+        
+        # Enable streaming thinking only in verbose/debug mode
+        stream_thinking = verbose or debug
         
         try:
-            for step in agent.execute(query):
+            for step in agent.execute(query, stream_thinking=stream_thinking):
                 step_type = step.get("type")
                 
                 # Display step based on type
@@ -118,17 +122,34 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                     # Don't display anything, just track the count
                 
                 elif step_type == "thinking_start":
+                    # Reset thinking buffer
+                    thinking_buffer = ""
+                    # Show thinking indicator only in verbose/debug mode
                     if verbose or debug:
-                        console.print(f"\n[dim]💭 Iteration {iteration_number}: Thinking...[/dim]")
+                        console.print(f"\n[dim italic]💭 Reasoning (Iteration {iteration_number})...[/dim italic]")
                 
                 elif step_type == "thinking_chunk":
-                    # Stream thinking process
+                    # Collect thinking content
+                    chunk = step.get("content", "")
+                    thinking_buffer += chunk
+                    # Stream in verbose/debug mode only
                     if verbose or debug:
-                        console.print(step.get("content"), end="")
+                        console.print(chunk, end="", style="dim cyan")
                 
                 elif step_type == "thinking_end":
+                    # Show thinking end only in verbose/debug mode
                     if verbose or debug:
                         console.print()  # New line after streaming
+                        # Optionally show a nice panel with the reasoning
+                        if thinking_buffer.strip():
+                            from rich.panel import Panel
+                            console.print(Panel(
+                                thinking_buffer.strip(),
+                                title="[dim]💡 Complete Reasoning[/dim]",
+                                border_style="dim cyan",
+                                padding=(0, 1),
+                                box=box.ROUNDED
+                            ))
                 
                 elif step_type == "tool_call":
                     step_number += 1
