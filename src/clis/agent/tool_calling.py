@@ -11,9 +11,24 @@ from typing import Any, Dict, List, Optional, Tuple
 from clis.agent.agent import Agent
 from clis.config import ConfigManager
 from clis.tools.base import Tool, ToolExecutor, ToolResult
+from clis.tools.filesystem.file_chunker import FileChunker
+from clis.tools.builtin import ReadFileTool
 from clis.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Default values (can be overridden by config)
+# Maximum characters per tool output (to prevent context overflow)
+# ~20000 chars ≈ 5000 tokens (rough estimate: 1 token ≈ 4 chars)
+DEFAULT_MAX_TOOL_OUTPUT_CHARS = 20000
+
+# Maximum total characters for all tool results combined
+# ~100000 chars ≈ 25000 tokens, leaving room for system prompt and other content
+DEFAULT_MAX_TOTAL_TOOL_RESULTS_CHARS = 100000
+
+# Maximum total context length (system prompt + user prompt + tool results)
+# Conservative limit: ~400000 chars ≈ 100000 tokens (model limit is 131072 tokens)
+DEFAULT_MAX_TOTAL_CONTEXT_CHARS = 400000
 
 
 class ToolCallingAgent:
@@ -33,13 +48,80 @@ class ToolCallingAgent:
             tools: List of available tools
             max_iterations: Maximum number of tool calling iterations
         """
-        self.agent = Agent(config_manager)
+        self.config_manager = config_manager or ConfigManager()
+        self.agent = Agent(self.config_manager)
         self.tools = tools or []
-        self.tool_executor = ToolExecutor(self.tools)
         self.max_iterations = max_iterations
+        
+        # Load context limits from config
+        self._setup_context_limits()
+        
+        # Setup file chunker based on config
+        self._setup_file_chunker()
+        
+        # Setup tool executor
+        self.tool_executor = ToolExecutor(self.tools)
         
         # Conversation history
         self.messages: List[Dict[str, str]] = []
+    
+    def _setup_context_limits(self) -> None:
+        """Setup context limits based on model configuration."""
+        try:
+            llm_config = self.config_manager.load_llm_config()
+            context_config = llm_config.model.context
+            
+            # Calculate limits based on window size
+            window_size = context_config.window_size
+            chars_per_token = 4  # Approximate
+            
+            # Max tool output: 20% of window
+            self.max_tool_output_chars = int(window_size * 0.2 * chars_per_token)
+            
+            # Max total tool results: 40% of window  
+            self.max_total_tool_results_chars = int(window_size * 0.4 * chars_per_token)
+            
+            # Max total context: 80% of window (leave room for response)
+            self.max_total_context_chars = int(window_size * 0.8 * chars_per_token)
+            
+            logger.debug(
+                f"Context limits configured for window_size={window_size}: "
+                f"max_tool_output={self.max_tool_output_chars}, "
+                f"max_total_results={self.max_total_tool_results_chars}, "
+                f"max_context={self.max_total_context_chars}"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to load context config, using defaults: {e}")
+            self.max_tool_output_chars = DEFAULT_MAX_TOOL_OUTPUT_CHARS
+            self.max_total_tool_results_chars = DEFAULT_MAX_TOTAL_TOOL_RESULTS_CHARS
+            self.max_total_context_chars = DEFAULT_MAX_TOTAL_CONTEXT_CHARS
+    
+    def _setup_file_chunker(self) -> None:
+        """Setup file chunker for ReadFileTool based on config."""
+        try:
+            llm_config = self.config_manager.load_llm_config()
+            context_config = llm_config.model.context
+            
+            if context_config.auto_chunk:
+                # Create chunker from config
+                self.file_chunker = FileChunker.from_config(context_config)
+                
+                # Find and configure ReadFileTool
+                for tool in self.tools:
+                    if isinstance(tool, ReadFileTool):
+                        tool.set_chunker(self.file_chunker)
+                        logger.debug(
+                            f"Configured ReadFileTool with chunker: "
+                            f"window_size={context_config.window_size}, "
+                            f"threshold={self.file_chunker.effective_threshold} tokens"
+                        )
+                        break
+            else:
+                self.file_chunker = None
+                logger.debug("File chunking disabled in config")
+        except Exception as e:
+            logger.warning(f"Failed to setup file chunker: {e}")
+            self.file_chunker = None
     
     def execute_with_tools(
         self,
@@ -197,9 +279,12 @@ Generate the final commands NOW in JSON format:
                 
                 # Build next query with tool results
                 results_text = self._format_tool_results(tool_results)
-                current_query = f"""You have gathered the necessary information from tools. Here are the results:
+                
+                # Build base query parts
+                query_prefix = """You have gathered the necessary information from tools. Here are the results:
 
-{results_text}
+"""
+                query_suffix = f"""
 
 **IMPORTANT**: You now have all the information you need. DO NOT call any more tools.
 
@@ -217,6 +302,49 @@ You MUST respond with commands in JSON format:
 
 DO NOT call tools again. Generate the final commands NOW.
 """
+                
+                # Check total context length and truncate if necessary
+                base_query_len = len(query_prefix) + len(query_suffix)
+                estimated_context = len(enhanced_system_prompt) + base_query_len + len(results_text)
+                
+                if estimated_context > self.max_total_context_chars:
+                    # Calculate how much space is available for results
+                    available_chars = self.max_total_context_chars - len(enhanced_system_prompt) - base_query_len
+                    if available_chars > 1000:  # Only truncate if there's meaningful space
+                        # Truncate results_text
+                        truncated_results = results_text[:available_chars]
+                        truncated_results += f"\n\n... (truncated due to context limit, showing first {available_chars} characters of {len(results_text)} total)"
+                        results_text = truncated_results
+                        logger.warning(
+                            f"Context truncated: estimated {estimated_context} chars, "
+                            f"limit is {self.max_total_context_chars} chars. "
+                            f"Truncated tool results to {available_chars} chars."
+                        )
+                    else:
+                        # Context is still too large even after truncation
+                        logger.error(
+                            f"Context too large even after truncation: {estimated_context} chars. "
+                            f"System prompt or query may be too long. Using minimal query."
+                        )
+                        # Use a minimal query without tool results
+                        current_query = f"""Tool results were too large to include fully.
+
+User's original request: "{query}"
+
+Please generate shell commands based on the user's request. You may need to make reasonable assumptions.
+
+You MUST respond with commands in JSON format:
+```json
+{{
+  "commands": ["command1", "command2", "..."],
+  "explanation": "detailed explanation"
+}}
+```
+"""
+                        continue
+                
+                # Build final query
+                current_query = query_prefix + results_text + query_suffix
                 
                 # Continue to next iteration
                 continue
@@ -345,20 +473,56 @@ Please provide a valid response.
         return None
     
     def _format_tool_results(self, tool_results: List[Dict[str, Any]]) -> str:
-        """Format tool results for next prompt."""
+        """
+        Format tool results for next prompt.
+        
+        Limits output size to prevent context overflow.
+        """
         formatted = []
+        total_chars = 0
         
         for i, result in enumerate(tool_results, 1):
             tool_name = result["tool"]
             parameters = result["parameters"]
             tool_result = result["result"]
             
-            formatted.append(f"""Tool Call #{i}: {tool_name}
+            # Get output and error text
+            output_text = tool_result.get('output', '')
+            error_text = tool_result.get('error', '')
+            
+            # Truncate output if too long
+            original_output_len = len(output_text)
+            if len(output_text) > self.max_tool_output_chars:
+                output_text = output_text[:self.max_tool_output_chars]
+                output_text += f"\n\n... (truncated, showing first {self.max_tool_output_chars} characters of {original_output_len} total)"
+                logger.warning(
+                    f"Tool '{tool_name}' output truncated from {original_output_len} to {self.max_tool_output_chars} chars"
+                )
+            
+            # Build formatted result
+            result_text = f"""Tool Call #{i}: {tool_name}
 Parameters: {json.dumps(parameters, indent=2)}
 Success: {tool_result['success']}
 Output:
-{tool_result['output']}
-{f"Error: {tool_result['error']}" if tool_result['error'] else ""}
-""")
+{output_text}
+{f"Error: {error_text}" if error_text else ""}
+"""
+            
+            # Check if adding this result would exceed total limit
+            result_chars = len(result_text)
+            if total_chars + result_chars > self.max_total_tool_results_chars:
+                remaining_chars = self.max_total_tool_results_chars - total_chars
+                if remaining_chars > 100:  # Only add if there's meaningful space
+                    # Truncate this result
+                    result_text = result_text[:remaining_chars]
+                    result_text += f"\n\n... (truncated due to total size limit)"
+                    formatted.append(result_text)
+                    logger.warning(
+                        f"Tool results truncated: reached total limit of {self.max_total_tool_results_chars} chars"
+                    )
+                break
+            
+            formatted.append(result_text)
+            total_chars += result_chars
         
         return "\n---\n".join(formatted)
