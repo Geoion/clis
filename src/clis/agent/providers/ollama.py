@@ -2,7 +2,7 @@
 Ollama LLM provider implementation.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Generator, Optional
 
 import requests
 
@@ -112,6 +112,86 @@ class OllamaProvider(LLMProvider):
             )
         except Exception as e:
             logger.error(f"Ollama API error: {e}")
+            raise
+
+    def generate_stream(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> Generator[str, None, None]:
+        """
+        Generate text from prompt using Ollama with streaming.
+        
+        Args:
+            prompt: User prompt
+            system_prompt: System prompt
+            temperature: Temperature override
+            max_tokens: Max tokens override
+            
+        Yields:
+            Text chunks as they are generated
+        """
+        temp = temperature if temperature is not None else self.temperature
+        max_tok = max_tokens if max_tokens is not None else self.max_tokens
+        
+        # Build request payload
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": True,  # Enable streaming
+            "options": {
+                "temperature": temp,
+                "num_predict": max_tok,
+            },
+        }
+        
+        if system_prompt:
+            payload["system"] = system_prompt
+        
+        logger.debug(f"Calling Ollama API (streaming) with model {self.model}")
+        logger.debug(f"Temperature: {temp}, Max tokens: {max_tok}")
+        
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/generate",
+                json=payload,
+                timeout=self.timeout,
+                stream=True,  # Enable streaming response
+            )
+            response.raise_for_status()
+            
+            # Process streaming response
+            for line in response.iter_lines():
+                if line:
+                    try:
+                        result = requests.compat.json.loads(line)
+                        if "response" in result:
+                            yield result["response"]
+                        
+                        # Check if done
+                        if result.get("done", False):
+                            # Log token usage if available
+                            if "eval_count" in result:
+                                logger.info(
+                                    f"Token usage - Input: {result.get('prompt_eval_count', 0)}, "
+                                    f"Output: {result.get('eval_count', 0)}"
+                                )
+                            break
+                    except Exception as e:
+                        logger.warning(f"Error parsing streaming response: {e}")
+                        continue
+        
+        except requests.exceptions.ConnectionError:
+            logger.error("Cannot connect to Ollama. Is it running?")
+            raise RuntimeError(
+                "Cannot connect to Ollama. Please ensure Ollama is running.\n"
+                "Install: https://ollama.ai/download\n"
+                f"Then run: ollama pull {self.model}"
+            )
+        except Exception as e:
+            logger.error(f"Ollama streaming API error: {e}")
             raise
 
     def estimate_cost(self, input_tokens: int, output_tokens: int) -> float:
