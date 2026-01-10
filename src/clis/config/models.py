@@ -53,12 +53,42 @@ class APIConfig(BaseModel):
     timeout: int = Field(default=30, description="Request timeout in seconds")
 
 
+class ContextConfig(BaseModel):
+    """Context window configuration for intelligent file chunking."""
+    
+    # Context window size in tokens (model-specific)
+    window_size: int = Field(default=64000, description="Model context window size in tokens")
+    
+    # File chunking settings
+    auto_chunk: bool = Field(default=True, description="Enable automatic file chunking based on context window")
+    chunk_threshold: int = Field(
+        default=0, 
+        description="Manual chunk threshold in tokens (0 = auto based on window_size)"
+    )
+    chunk_overlap: int = Field(default=200, description="Overlap between chunks in lines")
+    
+    # Reserved tokens for system prompt and response
+    reserved_tokens: int = Field(
+        default=4000, 
+        description="Tokens reserved for system prompt and model response"
+    )
+    
+    @property
+    def effective_threshold(self) -> int:
+        """Calculate effective chunk threshold."""
+        if self.chunk_threshold > 0:
+            return self.chunk_threshold
+        # Auto: use 60% of (window_size - reserved) for file content
+        return int((self.window_size - self.reserved_tokens) * 0.6)
+
+
 class ModelConfig(BaseModel):
     """Model configuration."""
 
     name: str = Field(default="", description="Model name")
     temperature: float = Field(default=0.1, description="Temperature")
     max_tokens: int = Field(default=2000, description="Max tokens")
+    context: ContextConfig = Field(default_factory=ContextConfig, description="Context window settings")
 
 
 class RetryConfig(BaseModel):
@@ -86,6 +116,10 @@ class LLMConfig(BaseModel):
     model: ModelConfig = Field(default_factory=ModelConfig)
     retry: RetryConfig = Field(default_factory=RetryConfig)
     cost: CostConfig = Field(default_factory=CostConfig)
+    
+    def get_chunk_threshold(self) -> int:
+        """Get the effective chunk threshold for file reading."""
+        return self.model.context.effective_threshold
 
 
 class BlacklistConfig(BaseModel):
