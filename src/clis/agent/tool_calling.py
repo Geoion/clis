@@ -4,6 +4,7 @@ Tool calling agent for CLIS.
 Enables multi-turn conversations with tool calling capabilities.
 """
 
+import asyncio
 import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
@@ -250,31 +251,17 @@ Generate the final commands NOW in JSON format:
 """
                     continue
                 
-                # Execute tool calls
-                tool_results = []
-                for tool_call in tool_calls:
-                    tool_name = tool_call.get("tool")
-                    parameters = tool_call.get("parameters", {})
-                    
-                    # Track tool call to prevent loops
-                    tool_sig = f"{tool_name}:{parameters}"
-                    called_tools.add(tool_sig)
-                    
-                    logger.info(f"Executing tool: {tool_name} with parameters: {parameters}")
-                    
-                    result = self.tool_executor.execute(tool_name, parameters)
-                    tool_results.append({
-                        "tool": tool_name,
-                        "parameters": parameters,
-                        "result": result.to_dict()
-                    })
-                    
+                # Execute tool calls (with parallel execution for readonly tools)
+                tool_results = self._execute_tool_calls_parallel(tool_calls, called_tools)
+                
+                # Add to history
+                for result_dict in tool_results:
                     tool_calls_history.append({
-                        "tool": tool_name,
-                        "parameters": parameters,
-                        "success": result.success,
-                        "output": result.output,
-                        "error": result.error
+                        "tool": result_dict["tool"],
+                        "parameters": result_dict["parameters"],
+                        "success": result_dict["result"]["success"],
+                        "output": result_dict["result"]["output"],
+                        "error": result_dict["result"]["error"]
                     })
                 
                 # Build next query with tool results
@@ -384,6 +371,143 @@ Please provide a valid response.
             f"Failed to generate commands after {self.max_iterations} attempts. Please try rephrasing your request.",
             tool_calls_history
         )
+    
+    def _execute_tool_calls_parallel(
+        self,
+        tool_calls: List[Dict[str, Any]],
+        called_tools: set
+    ) -> List[Dict[str, Any]]:
+        """
+        Execute tool calls with parallel execution for readonly tools.
+        
+        Args:
+            tool_calls: List of tool calls to execute
+            called_tools: Set to track called tools (for loop prevention)
+            
+        Returns:
+            List of tool results
+        """
+        # Separate readonly and write tools
+        readonly_calls = []
+        write_calls = []
+        
+        for tool_call in tool_calls:
+            tool_name = tool_call.get("tool")
+            
+            # Check if tool exists and is readonly
+            if tool_name in self.tool_executor.tools:
+                tool = self.tool_executor.tools[tool_name]
+                if tool.is_readonly:
+                    readonly_calls.append(tool_call)
+                else:
+                    write_calls.append(tool_call)
+            else:
+                # Unknown tool, treat as write (safer)
+                write_calls.append(tool_call)
+        
+        logger.info(
+            f"Executing {len(readonly_calls)} readonly tools in parallel, "
+            f"{len(write_calls)} write tools serially"
+        )
+        
+        # Execute readonly tools in parallel
+        readonly_results = []
+        if readonly_calls:
+            try:
+                # Run async execution in sync context
+                readonly_results = asyncio.run(
+                    self._execute_tools_async(readonly_calls, called_tools)
+                )
+            except Exception as e:
+                logger.error(f"Error in parallel execution: {e}")
+                # Fallback to serial execution
+                readonly_results = self._execute_tools_serial(readonly_calls, called_tools)
+        
+        # Execute write tools serially
+        write_results = self._execute_tools_serial(write_calls, called_tools)
+        
+        # Combine results (maintain order: readonly first, then write)
+        return readonly_results + write_results
+    
+    async def _execute_tools_async(
+        self,
+        tool_calls: List[Dict[str, Any]],
+        called_tools: set
+    ) -> List[Dict[str, Any]]:
+        """
+        Execute tools asynchronously in parallel.
+        
+        Args:
+            tool_calls: List of tool calls
+            called_tools: Set to track called tools
+            
+        Returns:
+            List of tool results
+        """
+        async def execute_one(tool_call: Dict[str, Any]) -> Dict[str, Any]:
+            """Execute a single tool call asynchronously."""
+            tool_name = tool_call.get("tool")
+            parameters = tool_call.get("parameters", {})
+            
+            # Track tool call
+            tool_sig = f"{tool_name}:{parameters}"
+            called_tools.add(tool_sig)
+            
+            logger.info(f"Executing tool (async): {tool_name} with parameters: {parameters}")
+            
+            # Execute in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                self.tool_executor.execute,
+                tool_name,
+                parameters
+            )
+            
+            return {
+                "tool": tool_name,
+                "parameters": parameters,
+                "result": result.to_dict()
+            }
+        
+        # Execute all tools concurrently
+        results = await asyncio.gather(*[execute_one(tc) for tc in tool_calls])
+        return list(results)
+    
+    def _execute_tools_serial(
+        self,
+        tool_calls: List[Dict[str, Any]],
+        called_tools: set
+    ) -> List[Dict[str, Any]]:
+        """
+        Execute tools serially (for write operations or fallback).
+        
+        Args:
+            tool_calls: List of tool calls
+            called_tools: Set to track called tools
+            
+        Returns:
+            List of tool results
+        """
+        results = []
+        for tool_call in tool_calls:
+            tool_name = tool_call.get("tool")
+            parameters = tool_call.get("parameters", {})
+            
+            # Track tool call
+            tool_sig = f"{tool_name}:{parameters}"
+            called_tools.add(tool_sig)
+            
+            logger.info(f"Executing tool (serial): {tool_name} with parameters: {parameters}")
+            
+            result = self.tool_executor.execute(tool_name, parameters)
+            results.append({
+                "tool": tool_name,
+                "parameters": parameters,
+                "result": result.to_dict()
+            })
+        
+        return results
     
     def _format_tools_for_prompt(self) -> str:
         """Format tool definitions for prompt."""
