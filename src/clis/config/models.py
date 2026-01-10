@@ -247,12 +247,8 @@ class AgentConfig(BaseModel):
         description="Maximum iterations for ReAct agent ('auto' or integer)"
     )
     auto_iterations_base: int = Field(
-        default=20,
-        description="Base iterations when auto mode is enabled"
-    )
-    auto_iterations_per_file: int = Field(
-        default=5,
-        description="Additional iterations per file in batch tasks"
+        default=100,
+        description="Safety limit for auto mode (prevents infinite loops)"
     )
 
 class SafetyConfig(BaseModel):
