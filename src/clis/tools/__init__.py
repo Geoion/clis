@@ -19,6 +19,7 @@ from clis.tools.builtin import (
 
 # Filesystem tools
 from clis.tools.filesystem import (
+    DeleteFileTool,
     SearchFilesTool,
     FileTreeTool,
     WriteFileTool,
@@ -75,6 +76,7 @@ __all__ = [
     "GitStatusTool",
     "DockerPsTool",
     # Filesystem
+    "DeleteFileTool",
     "SearchFilesTool",
     "FileTreeTool",
     "WriteFileTool",
