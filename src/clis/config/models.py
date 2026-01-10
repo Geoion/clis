@@ -2,7 +2,7 @@
 Pydantic models for CLIS configuration.
 """
 
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -171,6 +171,24 @@ class RiskActionsConfig(BaseModel):
     critical: str = Field(default="block", description="Action for critical risk")
 
 
+class AutoApproveConfig(BaseModel):
+    """Auto-approve configuration based on risk level."""
+    
+    enabled: bool = Field(default=False, description="Enable auto-approve")
+    max_risk_level: Literal["low", "medium", "high"] = Field(
+        default="low", 
+        description="Maximum risk level to auto-approve (low/medium/high)"
+    )
+    readonly_only: bool = Field(
+        default=True, 
+        description="Only auto-approve read-only operations"
+    )
+    record_decisions: bool = Field(
+        default=True,
+        description="Record all auto-approve decisions"
+    )
+
+
 class RiskConfig(BaseModel):
     """Risk scoring configuration."""
 
@@ -187,6 +205,10 @@ class ConfirmationConfig(BaseModel):
         default="reject", description="Default action on timeout"
     )
     show_risk_score: bool = Field(default=True, description="Show risk score in confirmation")
+    record_rejections: bool = Field(
+        default=True,
+        description="Record rejected operations in context"
+    )
 
 
 class LoggingConfig(BaseModel):
@@ -198,6 +220,41 @@ class LoggingConfig(BaseModel):
     include_risk_score: bool = Field(default=True, description="Include risk scores")
 
 
+class ContextManagementConfig(BaseModel):
+    """Context management configuration for intelligent history compression."""
+    
+    enabled: bool = Field(default=True, description="Enable intelligent context management")
+    max_observations: int = Field(default=10, description="Maximum observations to keep")
+    compression_threshold: int = Field(
+        default=5,
+        description="Compress observations when count exceeds this"
+    )
+    keep_critical: bool = Field(
+        default=True,
+        description="Always keep critical observations (errors, rejections)"
+    )
+    keep_recent: int = Field(
+        default=3,
+        description="Always keep N most recent observations"
+    )
+
+
+class AgentConfig(BaseModel):
+    """Agent execution configuration."""
+    
+    max_iterations: Union[str, int] = Field(
+        default="auto",
+        description="Maximum iterations for ReAct agent ('auto' or integer)"
+    )
+    auto_iterations_base: int = Field(
+        default=20,
+        description="Base iterations when auto mode is enabled"
+    )
+    auto_iterations_per_file: int = Field(
+        default=5,
+        description="Additional iterations per file in batch tasks"
+    )
+
 class SafetyConfig(BaseModel):
     """Safety configuration (safety.yaml)."""
 
@@ -205,5 +262,9 @@ class SafetyConfig(BaseModel):
     dry_run: DryRunConfig = Field(default_factory=DryRunConfig)
     sudo: SudoConfig = Field(default_factory=SudoConfig)
     risk: RiskConfig = Field(default_factory=RiskConfig)
+    auto_approve: AutoApproveConfig = Field(default_factory=AutoApproveConfig)
     confirmation: ConfirmationConfig = Field(default_factory=ConfirmationConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    context_management: ContextManagementConfig = Field(default_factory=ContextManagementConfig)
+    agent: AgentConfig = Field(default_factory=AgentConfig)
+
