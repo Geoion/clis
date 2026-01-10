@@ -46,6 +46,56 @@ model:
   # Maximum tokens in the response
   # 响应中的最大 Token 数
   max_tokens: 2000
+  
+  # Context Window Configuration | 上下文窗口配置
+  # Configure how large files are handled based on model's context window
+  # 根据模型的上下文窗口配置大文件处理方式
+  context:
+    # Context window size in tokens | 上下文窗口大小（token数）
+    # Set based on your model:
+    # 根据使用的模型设置：
+    #
+    # DeepSeek (API):
+    #   - deepseek-chat: 64000
+    #   - deepseek-coder: 128000
+    #   - deepseek-reasoner: 64000
+    #
+    # Qwen (API):
+    #   - qwen-plus: 32000
+    #   - qwen-turbo: 8000
+    #   - qwen-max: 128000
+    #
+    # Ollama (local, depends on model):
+    #   - llama3: 8192
+    #   - llama3.1/3.2: 128000
+    #   - codellama: 16384
+    #   - mistral/mixtral: 32000
+    #   - qwen2/qwen2.5: 32000
+    #   - Check your model: ollama show <model> --modelfile
+    #
+    window_size: 64000
+    
+    # Enable automatic file chunking | 启用自动文件分块
+    # When true, large files are automatically split into chunks
+    # 设为 true 时，大文件会自动拆分成多个块
+    auto_chunk: true
+    
+    # Manual chunk threshold in tokens | 手动设置分块阈值（token数）
+    # 0 = auto (calculated from window_size)
+    # 0 = 自动（根据 window_size 计算）
+    # Set a specific value to override auto calculation
+    # 设置具体值以覆盖自动计算
+    chunk_threshold: 0
+    
+    # Overlap between chunks in lines | 分块重叠行数
+    # Helps maintain context between chunks
+    # 有助于保持分块之间的上下文连贯性
+    chunk_overlap: 200
+    
+    # Reserved tokens | 预留 token 数
+    # Tokens reserved for system prompt and model response
+    # 为系统提示和模型响应预留的 token 数
+    reserved_tokens: 4000
 
 # Retry Configuration | 重试配置
 retry:
@@ -74,24 +124,6 @@ cost:
 # Provider-Specific Examples | 不同提供商的配置示例
 # ============================================================================
 
-# --- OpenAI Example | OpenAI 示例 ---
-# provider: openai
-# api:
-#   key: ${OPENAI_API_KEY}
-#   base_url: https://api.openai.com/v1
-# model:
-#   name: gpt-4
-#   temperature: 0.1
-
-# --- Anthropic (Claude) Example | Anthropic (Claude) 示例 ---
-# provider: anthropic
-# api:
-#   key: ${ANTHROPIC_API_KEY}
-#   base_url: https://api.anthropic.com
-# model:
-#   name: claude-3-sonnet-20240229
-#   temperature: 0.1
-
 # --- Qwen Example | 通义千问示例 ---
 # provider: qwen
 # api:
@@ -100,6 +132,8 @@ cost:
 # model:
 #   name: qwen-plus
 #   temperature: 0.1
+#   context:
+#     window_size: 32000  # qwen-plus
 
 # --- Ollama (Local) Example | Ollama（本地）示例 ---
 # provider: ollama
@@ -109,8 +143,12 @@ cost:
 #   # 本地 Ollama 不需要 API 密钥
 # model:
 #   name: llama3
-#   # Supported models: llama3, codellama, mistral, phi, etc.
-#   # 支持的模型：llama3、codellama、mistral、phi 等
+#   # Supported models: llama3, codellama, mistral, qwen2, etc.
+#   # 支持的模型：llama3、codellama、mistral、qwen2 等
 #   # Run 'ollama list' to see available models
 #   # 运行 'ollama list' 查看可用模型
+#   # Check context size: ollama show <model> --modelfile
+#   # 查看上下文大小：ollama show <model> --modelfile
 #   temperature: 0.1
+#   context:
+#     window_size: 8192  # llama3 default, adjust for your model
