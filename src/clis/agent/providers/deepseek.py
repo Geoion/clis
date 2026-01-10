@@ -2,7 +2,7 @@
 DeepSeek LLM provider implementation.
 """
 
-from typing import Optional
+from typing import Generator, Optional
 
 from openai import OpenAI
 
@@ -100,6 +100,62 @@ class DeepSeekProvider(LLMProvider):
         
         except Exception as e:
             logger.error(f"DeepSeek API error: {e}")
+            raise
+
+    def generate_stream(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> Generator[str, None, None]:
+        """
+        Generate text from prompt using DeepSeek with streaming.
+        
+        Args:
+            prompt: User prompt
+            system_prompt: System prompt
+            temperature: Temperature override
+            max_tokens: Max tokens override
+            
+        Yields:
+            Text chunks as they are generated
+        """
+        messages = []
+        
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        
+        messages.append({"role": "user", "content": prompt})
+        
+        temp = temperature if temperature is not None else self.temperature
+        max_tok = max_tokens if max_tokens is not None else self.max_tokens
+        
+        logger.debug(f"Calling DeepSeek API (streaming) with model {self.model}")
+        logger.debug(f"Temperature: {temp}, Max tokens: {max_tok}")
+        
+        try:
+            stream = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=temp,
+                max_tokens=max_tok,
+                stream=True,  # Enable streaming
+            )
+            
+            # Track tokens for logging
+            total_tokens = 0
+            
+            for chunk in stream:
+                if chunk.choices[0].delta.content:
+                    content = chunk.choices[0].delta.content
+                    total_tokens += len(content.split())  # Rough estimate
+                    yield content
+            
+            logger.info(f"Streaming completed, approximate tokens: {total_tokens}")
+        
+        except Exception as e:
+            logger.error(f"DeepSeek streaming API error: {e}")
             raise
 
     def estimate_cost(self, input_tokens: int, output_tokens: int) -> float:
