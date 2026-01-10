@@ -99,11 +99,8 @@ class InteractiveAgent:
         platform = get_platform()
         shell = get_shell()
         
-        # Analyze task type (once)
-        task_analysis = self._analyze_task(query)
-        
         # Build base system prompt template (will be updated each iteration)
-        def build_system_prompt() -> str:
+        def build_system_prompt(iteration: int) -> str:
             # Build tool call history summary (DYNAMIC - updates each iteration)
             tool_history_summary = ""
             if self.tool_call_history:
@@ -120,57 +117,52 @@ class InteractiveAgent:
                     if last_call == second_last:
                         tool_history_summary += "\n⚠️ WARNING: You're repeating the same call! Do something different!\n"
             
-            return f"""You are a command-line assistant. Platform: {platform}, Shell: {shell}
+            # Get few-shot examples
+            examples = self._get_few_shot_examples()
+            
+            # Get phase hint based on iteration
+            phase_hint = self._get_phase_hint_simple(iteration)
+            
+            return f"""You are an expert command-line assistant that executes tasks efficiently.
 
+Platform: {platform} | Shell: {shell}
 Available tools: {', '.join([t.name for t in self.tools])}
 
-🚨 CRITICAL RULES (VIOLATION = FAILURE):
-1. ⚠️ DON'T call the same tool 3+ times in a row (causes loop)
-2. ⚠️ git_status is OK to call after each commit (to see remaining files)
-3. ⚠️ If you see "LOOP DETECTED" in observations, CHANGE YOUR APPROACH
-4. ⚠️ After iteration 3, STOP gathering and START executing
-5. ⚠️ For batch commits: git_add → git_commit → git_status → next file
-6. ⚠️ When task is complete, respond with {{"type": "done", "summary": "..."}}
+{examples}
 
-TASK ANALYSIS:
-{task_analysis}
+🎯 CURRENT TASK:
+User request: {query}
 
-EXECUTION STRATEGY FOR BATCH COMMITS:
-Step 1: git_status → get file list, IDENTIFY target files based on user requirements
-Step 2: For EACH target file:
-   - git_add(files=["file.py"])
-   - git_commit(message="...")
-   - git_status (check remaining)
-Step 3: When ALL TARGET files committed → {{"type": "done", "summary": "..."}}
+{phase_hint}
 
-CRITICAL: 
-- ONLY process files that match user requirements (e.g., "python files" = *.py only)
-- IGNORE files user explicitly excluded (e.g., "DON'T ADD *.md" = skip all .md files)
-- After committing all target files, IMMEDIATELY respond with {{"type": "done"}}
-
-TOOL USAGE:
+📋 TOOL DESCRIPTIONS:
 - git_status: Check current git status
-- git_diff: View file changes for ONE file at a time
-- git_add: Stage ONE file: git_add(files=["path/to/file.py"])
-- git_commit: Commit staged file: git_commit(message="description")
-- file_tree: See directory structure
+- git_diff: View changes in files
+- git_add: Stage files for commit (can stage multiple: files=["a.py", "b.py"])
+- git_commit: Commit staged changes with a message
+- file_tree: View directory structure
 - read_file: Read file content
 - write_file: Write content to file (requires confirmation)
-- delete_file: Delete file (requires confirmation) - USE THIS instead of "rm" command
-- execute_command: Execute shell command (use ONLY when no specific tool available)
+- delete_file: Delete a file (requires confirmation)
+- search_files: Search for files by name pattern
+- list_files: List files in a directory
+- execute_command: Execute shell command (use only when no specific tool available)
 
-⚠️ IMPORTANT: 
-- For file deletion, use delete_file tool, NOT execute_command with "rm"
-- For file writing, use write_file tool, NOT execute_command with "echo" or ">"
+⚠️ IMPORTANT RULES:
+1. Don't call the same tool with same parameters 3+ times (causes loops)
+2. After gathering info (2-3 iterations), START EXECUTING
+3. For simple tasks (deletion, single commit), act immediately
+4. When task is complete, respond with {{"type": "done", "summary": "..."}}
+5. Use specific tools (delete_file, write_file) instead of execute_command
 {tool_history_summary}
 
-FORMAT (respond with ONLY ONE action):
+📤 RESPONSE FORMAT (respond with ONLY ONE action):
 ```action
-{{"type": "tool", "tool": "name", "params": {{}}}}
+{{"type": "tool", "tool": "tool_name", "params": {{"key": "value"}}}}
 ```
-OR
+OR when complete:
 ```action
-{{"type": "done", "summary": "..."}}
+{{"type": "done", "summary": "Task completed successfully"}}
 ```
 """
         
@@ -193,7 +185,7 @@ OR
             yield {"type": "iteration_start", "iteration": iteration + 1}
             
             # Build system prompt with CURRENT tool history (updates each iteration)
-            system_prompt = build_system_prompt()
+            system_prompt = build_system_prompt(iteration)
             
             # REASON: Ask LLM what to do next (synchronous with optional streaming display)
             if stream_thinking:
@@ -431,66 +423,174 @@ Respond with ONE action only:"""
             "content": f"Reached maximum iterations ({self.max_iterations})"
         }
     
-    def _analyze_task(self, query: str) -> str:
+    def _get_few_shot_examples(self) -> str:
         """
-        分析任务类型和需求.
+        生成 Few-shot Learning 示例来教会 LLM 正确的执行模式.
         
-        Args:
-            query: 用户查询
-            
         Returns:
-            任务分析描述
+            包含多个示例的字符串
         """
-        query_lower = query.lower()
-        
-        # 检测删除任务
-        if any(kw in query_lower for kw in ["delete", "remove", "rm", "删除"]):
-            return """
-This is a FILE DELETION task:
-- SIMPLE and DIRECT - just delete the file
-- Step 1: delete_file(path="...") - that's it!
-- DON'T call git_status, get_file_info, or other checks
-- After deletion, immediately respond with {"type": "done"}
+        return """
+═══════════════════════════════════════════════════════════════
+📚 LEARN FROM THESE EXAMPLES - How to Handle Different Tasks:
+═══════════════════════════════════════════════════════════════
+
+Example 1: Simple File Deletion (1 step)
+─────────────────────────────────────────
+User: "Delete the test.py file"
+
+✅ CORRECT Approach:
+Iteration 1:
+```action
+{"type": "tool", "tool": "delete_file", "params": {"path": "test.py"}}
+```
+Observation: File deleted successfully
+Iteration 2:
+```action
+{"type": "done", "summary": "Deleted test.py"}
+```
+
+❌ WRONG Approach (too many steps):
+- Don't call git_status first
+- Don't call file_tree to check if file exists
+- Just delete it directly!
+
+─────────────────────────────────────────
+Example 2: Batch Commit (Multiple Files Separately)
+─────────────────────────────────────────
+User: "Commit all Python files one by one"
+
+✅ CORRECT Approach:
+Iteration 1: Check what files are modified
+```action
+{"type": "tool", "tool": "git_status", "params": {}}
+```
+Observation: Modified files: a.py, b.js, c.py, README.md
+
+Iteration 2: Add FIRST Python file
+```action
+{"type": "tool", "tool": "git_add", "params": {"files": ["a.py"]}}
+```
+
+Iteration 3: Commit it
+```action
+{"type": "tool", "tool": "git_commit", "params": {"message": "Update a.py"}}
+```
+
+Iteration 4: Check remaining files
+```action
+{"type": "tool", "tool": "git_status", "params": {}}
+```
+Observation: Modified files: b.js, c.py, README.md
+
+Iteration 5: Add SECOND Python file (skip b.js - not Python!)
+```action
+{"type": "tool", "tool": "git_add", "params": {"files": ["c.py"]}}
+```
+
+Iteration 6: Commit it
+```action
+{"type": "tool", "tool": "git_commit", "params": {"message": "Update c.py"}}
+```
+
+Iteration 7: Check remaining
+```action
+{"type": "tool", "tool": "git_status", "params": {}}
+```
+Observation: Modified files: b.js, README.md (no more Python files)
+
+Iteration 8: Done!
+```action
+{"type": "done", "summary": "Committed 2 Python files: a.py, c.py"}
+```
+
+Key Pattern: git_add → git_commit → git_status → repeat for next file
+
+─────────────────────────────────────────
+Example 3: Single Commit (All Files Together)
+─────────────────────────────────────────
+User: "Commit all changes with message 'Update files'"
+
+✅ CORRECT Approach:
+Iteration 1: Check status
+```action
+{"type": "tool", "tool": "git_status", "params": {}}
+```
+Observation: Modified files: a.py, b.js, c.md
+
+Iteration 2: Stage all files
+```action
+{"type": "tool", "tool": "git_add", "params": {"files": ["a.py", "b.js", "c.md"]}}
+```
+
+Iteration 3: Commit all together
+```action
+{"type": "tool", "tool": "git_commit", "params": {"message": "Update files"}}
+```
+
+Iteration 4: Done
+```action
+{"type": "done", "summary": "Committed 3 files together"}
+```
+
+─────────────────────────────────────────
+Example 4: Information Query
+─────────────────────────────────────────
+User: "What files are in the src directory?"
+
+✅ CORRECT Approach:
+Iteration 1:
+```action
+{"type": "tool", "tool": "list_files", "params": {"path": "src"}}
+```
+Observation: Files: main.py, utils.py, config.py
+
+Iteration 2:
+```action
+{"type": "done", "summary": "Found 3 files in src: main.py, utils.py, config.py"}
+```
+
+❌ WRONG: Don't call list_files multiple times!
+
+─────────────────────────────────────────
+Example 5: Complex Task (Needs Planning)
+─────────────────────────────────────────
+User: "Add a new feature to the authentication module"
+
+✅ CORRECT Approach:
+Iteration 1: Understand structure
+```action
+{"type": "tool", "tool": "file_tree", "params": {"max_depth": 2}}
+```
+
+Iteration 2: Read existing auth code
+```action
+{"type": "tool", "tool": "read_file", "params": {"path": "src/auth.py"}}
+```
+
+Iteration 3: Write new code
+```action
+{"type": "tool", "tool": "write_file", "params": {"path": "src/auth.py", "content": "..."}}
+```
+
+Iteration 4: Done
+```action
+{"type": "done", "summary": "Added new feature to auth module"}
+```
+
+═══════════════════════════════════════════════════════════════
+🎯 KEY PRINCIPLES:
+1. Simple tasks (deletion, single query) → Act immediately (1-2 steps)
+2. Batch operations → Use a loop pattern (add → commit → check → repeat)
+3. Complex tasks → Gather info first (2-3 steps), then execute
+4. When task is complete → Always respond with {"type": "done"}
+5. Don't repeat the same tool call 3+ times!
+═══════════════════════════════════════════════════════════════
 """
-        
-        # 检测批量提交任务
-        if "commit" in query_lower:
-            if any(kw in query_lower for kw in ["one by one", "逐个", "each file", "separately"]):
-                return """
-This is a BATCH COMMIT task:
-- You need to commit multiple files SEPARATELY
-- For EACH file: git_add(files=["file.py"]) → git_commit(message="...")
-- Generate meaningful commit message based on file content
-- Repeat for all modified files
-"""
-            elif any(kw in query_lower for kw in ["all", "所有", "together"]):
-                return """
-This is a SINGLE COMMIT task:
-- Stage all files at once: git_add(all=True)
-- Commit with one message: git_commit(message="...")
-"""
-        
-        # 检测文件操作任务
-        if any(kw in query_lower for kw in ["find", "search", "list"]):
-            return """
-This is an INFORMATION GATHERING task:
-- Use file_tree, search_files, or list_files
-- Present results and mark as done
-"""
-        
-        # 检测 git 查询任务
-        if any(kw in query_lower for kw in ["status", "diff", "log"]):
-            return """
-This is a GIT QUERY task:
-- Use git_status, git_diff, or git_log
-- Present results and mark as done
-"""
-        
-        return "Standard task - analyze and execute step by step"
     
-    def _get_phase_hint(self, iteration: int) -> str:
+    def _get_phase_hint_simple(self, iteration: int) -> str:
         """
-        根据迭代次数给出阶段提示.
+        根据迭代次数给出简洁的阶段提示.
         
         Args:
             iteration: 当前迭代次数(从0开始)
@@ -498,129 +598,14 @@ This is a GIT QUERY task:
         Returns:
             阶段提示
         """
-        if iteration <= 2:
-            return "Phase 1: Gather information (git_status, git_diff, file_tree)"
+        if iteration == 0:
+            return "🟢 Phase: Initial Analysis - Understand the request and plan your approach"
+        elif iteration <= 2:
+            return "🔵 Phase: Information Gathering - Collect necessary data (if needed)"
         elif iteration <= 5:
-            return "⚠️ Phase 2: START EXECUTING (use git_add, git_commit)"
+            return "🟡 Phase: Execution - Time to take action! Stop gathering and start executing"
         else:
-            return "🚨 Phase 2: You should be EXECUTING by now! Stop gathering info!"
-    
-    def _get_next_action_hint(self, query: str, iteration: int) -> str:
-        """
-        根据任务和进度给出具体的下一步建议.
-        
-        Args:
-            query: 用户查询
-            iteration: 当前迭代次数
-            
-        Returns:
-            下一步行动建议
-        """
-        query_lower = query.lower()
-        
-        # 检测删除任务
-        if any(kw in query_lower for kw in ["delete", "remove", "rm", "删除"]):
-            if iteration == 1:
-                return """
-This is a simple deletion task.
-NEXT STEP: delete_file(path="exact/path/from/query")
-DON'T call any other tools - just delete the file!
-"""
-            else:
-                return """
-You should have deleted the file by now!
-If deletion succeeded, respond with {"type": "done", "summary": "File deleted"}
-"""
-        
-        # 提取目标文件类型
-        target_file_type = None
-        if "python files" in query_lower or ".py" in query_lower:
-            target_file_type = "*.py"
-        elif "javascript files" in query_lower or ".js" in query_lower:
-            target_file_type = "*.js"
-        
-        # 提取排除模式
-        excluded_patterns = []
-        if "don't add" in query_lower or "don't commit" in query_lower or "skip" in query_lower:
-            import re
-            # 提取 "DON'T ADD *.md" 中的 *.md
-            exclude_match = re.search(r"don'?t\s+(?:add|commit)\s+([\w\*\.]+)", query_lower)
-            if exclude_match:
-                excluded_patterns.append(exclude_match.group(1))
-        
-        # 检测是否是批量提交任务
-        is_batch_commit = "commit" in query_lower and any(
-            kw in query_lower for kw in ["one by one", "逐个", "each file", "separately"]
-        )
-        
-        if is_batch_commit:
-            if iteration <= 2:
-                hint = "1. Use git_status to get list of modified files\n"
-                if target_file_type:
-                    hint += f"2. IDENTIFY {target_file_type} files ONLY\n"
-                if excluded_patterns:
-                    hint += f"3. EXCLUDE files matching: {', '.join(excluded_patterns)}\n"
-                return hint
-            
-            elif iteration >= 3:
-                # Check what's been done
-                committed_files = [
-                    call for call in self.tool_call_history 
-                    if call.get('tool') == 'git_commit' and call.get('success', True)
-                ]
-                
-                added_files = [
-                    call for call in self.tool_call_history 
-                    if call.get('tool') == 'git_add'
-                ]
-                
-                # Check last action
-                last_action = self.tool_call_history[-1] if self.tool_call_history else None
-                last_tool = last_action.get('tool') if last_action else None
-                
-                if not committed_files:
-                    if not added_files:
-                        hint = "🚨 CRITICAL: Start executing!\n"
-                        if target_file_type:
-                            hint += f"NEXT STEP: git_add(files=[\"path/to/file{target_file_type.replace('*', '')}\"]) - ONLY {target_file_type} files!\n"
-                        else:
-                            hint += "NEXT STEP: git_add(files=[\"path/to/file\"])\n"
-                        return hint
-                    else:
-                        return "🚨 You staged a file but didn't commit!\nNEXT STEP: git_commit(message=\"...\")"
-                else:
-                    # Already committed some files
-                    if last_tool == 'git_commit':
-                        hint = f"✅ Good! You've committed {len(committed_files)} file(s).\n"
-                        hint += "NEXT STEP: git_status (check remaining TARGET files)\n"
-                        if target_file_type:
-                            hint += f"⚠️ REMEMBER: Only commit {target_file_type} files!\n"
-                        if excluded_patterns:
-                            hint += f"⚠️ EXCLUDE: {', '.join(excluded_patterns)}\n"
-                        hint += f"⚠️ If no more TARGET files, respond with {{\"type\": \"done\", \"summary\": \"Committed {len(committed_files)} files\"}}"
-                        return hint
-                    
-                    elif last_tool == 'git_status':
-                        hint = f"✅ You checked status.\n"
-                        if target_file_type:
-                            hint += f"NEXT STEP: Pick NEXT {target_file_type} file and git_add it\n"
-                            hint += f"⚠️ If no more {target_file_type} files, respond with {{\"type\": \"done\"}}"
-                        else:
-                            hint += "NEXT STEP: Pick NEXT file and git_add it\n"
-                            hint += "⚠️ If no more files, respond with {\"type\": \"done\"}"
-                        return hint
-                    
-                    elif last_tool == 'git_add':
-                        return "NEXT STEP: git_commit(message=\"...\")"
-                    
-                    else:
-                        return f"Continue: git_add → git_commit → git_status\nOr if done: {{\"type\": \"done\", \"summary\": \"Committed {len(committed_files)} files\"}}"
-        
-        # 其他任务类型
-        if iteration >= 4:
-            return "You've gathered enough info. Execute the task now!"
-        
-        return "Gather necessary information, then execute."
+            return "🔴 Phase: Late Stage - You should be finishing up or already done!"
     
     def execute_tool(self, tool_name: str, params: Dict[str, Any], approved: bool = True) -> Dict[str, Any]:
         """
