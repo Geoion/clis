@@ -25,6 +25,14 @@ from clis.tools.filesystem import (
     GetFileInfoTool,
 )
 
+# File chunking
+from clis.tools.filesystem.file_chunker import (
+    FileChunker,
+    FileChunk,
+    MODEL_PRESETS,
+    get_model_preset,
+)
+
 # Git tools
 from clis.tools.git import (
     GitDiffTool,
@@ -69,6 +77,11 @@ __all__ = [
     "FileTreeTool",
     "WriteFileTool",
     "GetFileInfoTool",
+    # File chunking
+    "FileChunker",
+    "FileChunk",
+    "MODEL_PRESETS",
+    "get_model_preset",
     # Git
     "GitDiffTool",
     "GitLogTool",
