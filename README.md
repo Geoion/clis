@@ -217,6 +217,56 @@ clis run "your query"
 clis run "your query" --no-tool-calling
 ```
 
+### 📏 Smart File Chunking (Context-Aware)
+
+CLIS automatically splits large files based on model's context window size to prevent overflow:
+
+```yaml
+# ~/.clis/config/llm.yaml
+model:
+  name: deepseek-chat
+  context:
+    # Context window size (tokens) - set based on model
+    window_size: 64000    # deepseek-chat
+    # window_size: 128000  # deepseek-coder
+    # window_size: 32000   # qwen-plus
+    
+    # Enable automatic chunking
+    auto_chunk: true
+    
+    # Manual threshold (0 = auto calculate)
+    chunk_threshold: 0
+    
+    # Overlap lines between chunks (maintains context continuity)
+    chunk_overlap: 200
+    
+    # Reserved tokens for system prompt and response
+    reserved_tokens: 4000
+```
+
+**Supported Model Presets**:
+
+| Provider | Model | Context Window |
+|----------|-------|----------------|
+| DeepSeek | deepseek-chat | 64,000 tokens |
+| DeepSeek | deepseek-coder | 128,000 tokens |
+| DeepSeek | deepseek-reasoner | 64,000 tokens |
+| Qwen | qwen-plus | 32,000 tokens |
+| Qwen | qwen-turbo | 8,000 tokens |
+| Qwen | qwen-max | 128,000 tokens |
+| Ollama | llama3 | 8,192 tokens |
+| Ollama | codellama | 16,384 tokens |
+| Ollama | mistral/mixtral | 32,000 tokens |
+| Ollama | qwen2 | 32,000 tokens |
+
+> **Note**: For Ollama, the context window depends on the specific model you're running locally. Check your model's documentation for accurate values.
+
+**How It Works**:
+1. Automatically detects if file needs splitting when reading
+2. Calculates chunk threshold based on model's window size
+3. Maintains overlap lines for context continuity
+4. Tool outputs are auto-truncated to prevent context overflow
+
 ### Create Custom Skills
 
 ```bash
