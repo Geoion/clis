@@ -2,7 +2,7 @@
 Agent core for CLIS - handles LLM interactions and prompt building.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Generator, Optional
 
 from clis.agent.providers.base import LLMProvider
 from clis.agent.providers.deepseek import DeepSeekProvider
@@ -87,6 +87,32 @@ class Agent:
             system_prompt = self._inject_context(system_prompt)
         
         return self.provider.generate(prompt, system_prompt)
+
+    def generate_stream(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        inject_context: bool = True,
+    ) -> Generator[str, None, None]:
+        """
+        Generate text from prompt with streaming.
+        
+        Args:
+            prompt: User prompt
+            system_prompt: System prompt
+            inject_context: Whether to inject platform context
+            
+        Yields:
+            Text chunks as they are generated
+        """
+        if self.provider is None:
+            raise RuntimeError("LLM provider not initialized")
+        
+        # Inject platform context if requested
+        if inject_context and system_prompt:
+            system_prompt = self._inject_context(system_prompt)
+        
+        yield from self.provider.generate_stream(prompt, system_prompt)
 
     def generate_json(
         self,
