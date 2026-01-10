@@ -48,22 +48,20 @@ class InteractiveAgent:
                 safety_config = self.config_manager.load_safety_config()
                 config_value = safety_config.agent.max_iterations
                 if config_value == "auto":
-                    self.max_iterations = None  # Will be calculated dynamically
-                    self.auto_iterations_base = safety_config.agent.auto_iterations_base
-                    self.auto_iterations_per_file = safety_config.agent.auto_iterations_per_file
+                    # Auto mode: Agent decides when to stop, with a safety limit
+                    self.auto_mode = True
+                    self.max_iterations = safety_config.agent.auto_iterations_base  # Safety limit
                 else:
+                    # Fixed mode: Hard limit
+                    self.auto_mode = False
                     self.max_iterations = int(config_value)
-                    self.auto_iterations_base = None
-                    self.auto_iterations_per_file = None
             except Exception as e:
                 logger.warning(f"Failed to load agent config: {e}, using default")
+                self.auto_mode = False
                 self.max_iterations = 20
-                self.auto_iterations_base = None
-                self.auto_iterations_per_file = None
         else:
+            self.auto_mode = False
             self.max_iterations = max_iterations
-            self.auto_iterations_base = None
-            self.auto_iterations_per_file = None
         
         # Intelligent context management
         self.context_manager = ContextManager(self.config_manager)
@@ -164,15 +162,15 @@ OR
         
         current_context = f"User request: {query}\n\nWhat's your first step?"
         
-        # Calculate max_iterations dynamically if in auto mode
-        if self.max_iterations is None:
-            calculated_max = self._calculate_max_iterations(query)
-            logger.info(f"Auto mode: calculated max_iterations = {calculated_max}")
-        else:
-            calculated_max = self.max_iterations
+        # In auto mode, max_iterations is just a safety limit
+        if self.auto_mode:
+            logger.info(f"Auto mode: Agent will decide when to stop (safety limit: {self.max_iterations})")
         
-        for iteration in range(calculated_max):
-            logger.info(f"Iteration {iteration + 1}/{self.max_iterations}")
+        for iteration in range(self.max_iterations):
+            if self.auto_mode:
+                logger.info(f"Iteration {iteration + 1} (auto mode)")
+            else:
+                logger.info(f"Iteration {iteration + 1}/{self.max_iterations}")
             
             # Mark new iteration in context manager
             self.context_manager.next_iteration()
@@ -379,46 +377,16 @@ Previous observations ({stats['total']} total, {stats['critical']} critical):
 Respond with ONE action only:"""
         
         # Max iterations reached
-        yield {
-            "type": "error",
-            "content": f"Reached maximum iterations ({self.max_iterations})"
-        }
-    
-    def _calculate_max_iterations(self, query: str) -> int:
-        """
-        动态计算最大迭代次数.
-        
-        Args:
-            query: 用户查询
-            
-        Returns:
-            计算出的最大迭代次数
-        """
-        base = self.auto_iterations_base or 20
-        per_file = self.auto_iterations_per_file or 5
-        
-        query_lower = query.lower()
-        
-        # 检测是否是批量任务
-        is_batch = any(kw in query_lower for kw in [
-            "one by one", "逐个", "each file", "separately", 
-            "all files", "所有文件", "batch"
-        ])
-        
-        if is_batch:
-            # 尝试估算文件数量
-            estimated_files = 5  # 默认估计
-            
-            # 从查询中提取可能的数量信息
-            if "python files" in query_lower or "py files" in query_lower:
-                # 假设有多个 Python 文件
-                estimated_files = 8
-            
-            # 批量任务: base + (files * per_file)
-            return base + (estimated_files * per_file)
+        if self.auto_mode:
+            yield {
+                "type": "error",
+                "content": f"Reached safety limit ({self.max_iterations} iterations). Agent did not complete the task."
+            }
         else:
-            # 简单任务: 使用 base
-            return base
+            yield {
+                "type": "error",
+                "content": f"Reached maximum iterations ({self.max_iterations})"
+            }
     
     def _analyze_task(self, query: str) -> str:
         """
