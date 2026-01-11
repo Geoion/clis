@@ -1,3 +1,16 @@
+---
+name: Git Helper
+version: 2.0.0
+description: 帮助用户完成常见的 Git 操作，包括提交、推送、分支管理、历史查看等。支持智能识别当前仓库状态，提供符合最佳实践的命令建议。
+tools:
+  - git_status
+  - git_diff
+  - git_log
+  - read_file
+  - search_files
+  - file_tree
+---
+
 # Skill Name: Git Helper
 
 ## Description
