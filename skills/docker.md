@@ -1,3 +1,16 @@
+---
+name: Docker Manager
+version: 1.0.0
+description: 帮助用户管理 Docker 容器、镜像和网络。支持启动、停止、查看日志、构建镜像等常见操作。适合日常开发和部署场景。
+tools:
+  - docker_ps
+  - docker_logs
+  - docker_inspect
+  - docker_stats
+  - read_file
+  - search_files
+---
+
 # Skill Name: Docker Manager
 
 ## Description
