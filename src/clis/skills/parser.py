@@ -125,6 +125,12 @@ class SkillParser:
         if yaml_frontmatter and "description" in yaml_frontmatter:
             skill.description = yaml_frontmatter["description"]
         
+        # Extract tools from YAML front matter
+        if yaml_frontmatter and "tools" in yaml_frontmatter:
+            tools = yaml_frontmatter["tools"]
+            if isinstance(tools, list):
+                skill.required_tools = tools
+        
         # Parse sections
         # If description not from YAML, try to extract from section
         if not skill.description:
