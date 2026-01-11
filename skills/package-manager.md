@@ -1,3 +1,13 @@
+---
+name: Package Manager
+version: 1.0.0
+description: 帮助用户管理系统和编程语言的包管理器，包括 apt、brew、pip、npm、yarn 等。支持安装、卸载、更新、搜索包。
+tools:
+  - system_info
+  - check_command
+  - list_processes
+---
+
 # Skill Name: Package Manager
 
 ## Description
