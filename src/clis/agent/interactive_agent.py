@@ -36,13 +36,15 @@ class InteractiveAgent:
         self,
         config_manager: Optional[ConfigManager] = None,
         tools: Optional[list[Tool]] = None,
-        max_iterations: Optional[int] = None
+        max_iterations: Optional[int] = None,
+        skill_instructions: Optional[str] = None
     ):
         self.config_manager = config_manager or ConfigManager()
         self.agent = Agent(self.config_manager)
         self.tools = tools or []
         self.tool_executor = ToolExecutor(self.tools)
         self.risk_scorer = RiskScorer(self.config_manager)
+        self.skill_instructions = skill_instructions  # Store skill instructions
         
         # Load max_iterations from config if not specified
         if max_iterations is None:
@@ -123,6 +125,16 @@ class InteractiveAgent:
             # Get phase hint based on iteration
             phase_hint = self._get_phase_hint_simple(iteration)
             
+            # Build skill instructions section if available
+            skill_section = ""
+            if self.skill_instructions:
+                skill_section = f"""
+📚 SKILL INSTRUCTIONS:
+{self.skill_instructions}
+
+Follow the above skill instructions carefully when executing this task.
+"""
+            
             return f"""You are an expert command-line assistant that executes tasks efficiently.
 
 Platform: {platform} | Shell: {shell}
@@ -133,7 +145,7 @@ Available tools: {', '.join([t.name for t in self.tools])}
 🎯 CURRENT TASK:
 User request: {query}
 
-{phase_hint}
+{skill_section}{phase_hint}
 
 📋 TOOL DESCRIPTIONS:
 - git_status: Check current git status
@@ -382,26 +394,15 @@ OR when complete:
             # Build context for next iteration using context manager
             context_summary = self.context_manager.get_context()
             stats = self.context_manager.get_summary()
-            phase_hint = self._get_phase_hint(iteration + 1)
-            
-            # Determine next action hint based on task and progress
-            next_action_hint = self._get_next_action_hint(query, iteration + 1)
-            
-            # Build progress summary
-            committed_count = len([c for c in self.tool_call_history if c.get('tool') == 'git_commit'])
-            progress_summary = f"Files committed so far: {committed_count}"
+            phase_hint = self._get_phase_hint_simple(iteration + 1)
             
             current_context = f"""User request: {query}
 
 📊 PROGRESS: Iteration {iteration + 1}/{self.max_iterations}
-📊 {progress_summary}
 📊 CURRENT PHASE: {phase_hint}
 
 Previous observations ({stats['total']} total, {stats['critical']} critical):
 {context_summary}
-
-🎯 YOUR NEXT ACTION:
-{next_action_hint}
 
 ⚠️ IMPORTANT:
 - If you see "DUPLICATE" in observations, you're repeating yourself!
@@ -409,7 +410,7 @@ Previous observations ({stats['total']} total, {stats['critical']} critical):
 - If task is COMPLETE, respond with {{"type": "done", "summary": "..."}}
 - Otherwise, take a DIFFERENT action to make progress
 
-Respond with ONE action only:"""
+What's your next action?"""
         
         # Max iterations reached
         if self.auto_mode:
