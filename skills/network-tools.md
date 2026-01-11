@@ -1,3 +1,13 @@
+---
+name: Network Tools
+version: 1.0.0
+description: 网络诊断和测试工具，包括 ping、curl、netstat、端口检查等常用网络命令。
+tools:
+  - http_request
+  - check_port
+  - system_info
+---
+
 # Skill Name: Network Tools
 
 ## Description
