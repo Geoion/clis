@@ -48,7 +48,32 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
         
         formatter = OutputFormatter(config_manager)
         
-        # Import interactive agent (ReAct pattern)
+        # Step 1: Load and match skills (like Claude Code Skills)
+        from clis.router import SkillRouter, SkillMatcher
+        from clis.agent import Agent
+        
+        router = SkillRouter()
+        skills = router.scan_skills()
+        
+        matched_skill = None
+        skill_instructions = None
+        
+        if skills:
+            # Try to match a skill for this query
+            llm_agent = Agent(config_manager)
+            matcher = SkillMatcher(llm_agent)
+            match_result = matcher.match(query, skills)
+            
+            if match_result:
+                matched_skill, confidence = match_result
+                skill_instructions = matched_skill.instructions
+                
+                if verbose or debug:
+                    click.echo(f"✓ Matched skill: {matched_skill.name} (confidence: {confidence:.2f})")
+                    if hasattr(matched_skill, 'required_tools') and matched_skill.required_tools:
+                        click.echo(f"  Required tools: {', '.join(matched_skill.required_tools)}")
+        
+        # Step 2: Initialize tools (dynamically based on skill if matched)
         from clis.agent.interactive_agent import InteractiveAgent
         from clis.tools import (
             ListFilesTool, ReadFileTool, ExecuteCommandTool, GitStatusTool, DockerPsTool,
@@ -58,16 +83,63 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
             SystemInfoTool, CheckCommandTool, GetEnvTool, ListProcessesTool,
             HttpRequestTool, CheckPortTool
         )
+        from clis.tools.registry import ToolRegistry
         
-        # Initialize tools
-        tools = [
-            ListFilesTool(), ReadFileTool(), ExecuteCommandTool(), GitStatusTool(), DockerPsTool(),
-            DeleteFileTool(), SearchFilesTool(), FileTreeTool(), WriteFileTool(), GetFileInfoTool(),
-            GitAddTool(), GitCommitTool(), GitDiffTool(), GitLogTool(),
-            DockerLogsTool(), DockerInspectTool(), DockerStatsTool(),
-            SystemInfoTool(), CheckCommandTool(), GetEnvTool(), ListProcessesTool(),
-            HttpRequestTool(), CheckPortTool()
-        ]
+        # Build tool list based on matched skill
+        if matched_skill and hasattr(matched_skill, 'required_tools') and matched_skill.required_tools:
+            # Create a mapping of tool names to tool instances
+            all_available_tools = {
+                'list_files': ListFilesTool(),
+                'read_file': ReadFileTool(),
+                'execute_command': ExecuteCommandTool(),
+                'git_status': GitStatusTool(),
+                'docker_ps': DockerPsTool(),
+                'delete_file': DeleteFileTool(),
+                'search_files': SearchFilesTool(),
+                'file_tree': FileTreeTool(),
+                'write_file': WriteFileTool(),
+                'get_file_info': GetFileInfoTool(),
+                'git_add': GitAddTool(),
+                'git_commit': GitCommitTool(),
+                'git_diff': GitDiffTool(),
+                'git_log': GitLogTool(),
+                'docker_logs': DockerLogsTool(),
+                'docker_inspect': DockerInspectTool(),
+                'docker_stats': DockerStatsTool(),
+                'system_info': SystemInfoTool(),
+                'check_command': CheckCommandTool(),
+                'get_env': GetEnvTool(),
+                'list_processes': ListProcessesTool(),
+                'http_request': HttpRequestTool(),
+                'check_port': CheckPortTool(),
+            }
+            
+            # Load only the tools required by the skill
+            tools = []
+            for tool_name in matched_skill.required_tools:
+                tool = all_available_tools.get(tool_name)
+                if tool:
+                    tools.append(tool)
+                else:
+                    if verbose or debug:
+                        click.echo(f"  ⚠️  Tool '{tool_name}' not found")
+            
+            # Always include essential tools
+            if not any(t.name == 'execute_command' for t in tools):
+                tools.append(ExecuteCommandTool())
+            
+            if verbose or debug:
+                click.echo(f"  Loaded {len(tools)} tools for skill '{matched_skill.name}'")
+        else:
+            # No skill matched, use all available tools
+            tools = [
+                ListFilesTool(), ReadFileTool(), ExecuteCommandTool(), GitStatusTool(), DockerPsTool(),
+                DeleteFileTool(), SearchFilesTool(), FileTreeTool(), WriteFileTool(), GetFileInfoTool(),
+                GitAddTool(), GitCommitTool(), GitDiffTool(), GitLogTool(),
+                DockerLogsTool(), DockerInspectTool(), DockerStatsTool(),
+                SystemInfoTool(), CheckCommandTool(), GetEnvTool(), ListProcessesTool(),
+                HttpRequestTool(), CheckPortTool()
+            ]
         
         # Configure file chunker for ReadFileTool
         llm_config = config_manager.load_llm_config()
@@ -79,11 +151,11 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                     tool.set_chunker(chunker)
                     break
         
-        # Initialize interactive agent (ReAct pattern)
-        # max_iterations will be loaded from config (default: auto)
+        # Step 3: Initialize interactive agent with skill context
         agent = InteractiveAgent(
             config_manager=config_manager,
-            tools=tools
+            tools=tools,
+            skill_instructions=skill_instructions  # Pass skill instructions
         )
         
         # Display header with rich
@@ -669,20 +741,22 @@ def init(provider: Optional[str]) -> None:
 @main.command()
 @click.argument("name")
 @click.option("--auto", is_flag=True, help="Use LLM to auto-generate skill based on prompt")
-def new(name: str, auto: bool) -> None:
+@click.option("--tools", multiple=True, help="Required tools for this skill (e.g., --tools git_status --tools read_file)")
+def create(name: str, auto: bool, tools: Tuple[str, ...]) -> None:
     """
     Create a new skill file.
     
     Two modes:
-    1. Direct mode (default): clis new "skill-name"
+    1. Template mode (default): clis create "skill-name"
        Creates a basic skill template that you can edit manually.
     
-    2. Auto mode: clis new "description of skill" --auto
+    2. Auto mode: clis create "description of skill" --auto
        Uses LLM to generate a complete skill based on your description.
     
     Examples:
-        clis new "my-custom-skill"
-        clis new "a skill to manage docker containers" --auto
+        clis create "my-custom-skill"
+        clis create "my-skill" --tools git_status --tools read_file
+        clis create "a skill to manage docker containers" --auto
     """
     from clis.agent import Agent
     from clis.utils.platform import get_skills_dir, ensure_dir
@@ -696,10 +770,10 @@ def new(name: str, auto: bool) -> None:
     
     if auto:
         # Auto mode: use LLM to generate skill
-        _create_skill_with_llm(name, config_manager)
+        _create_skill_with_llm(name, config_manager, list(tools))
     else:
-        # Direct mode: create basic template
-        _create_skill_template(name, config_manager)
+        # Template mode: create basic template
+        _create_skill_template(name, config_manager, list(tools))
 
 
 @main.command()
@@ -971,6 +1045,179 @@ def install(source: str, with_deps: bool) -> None:
         sys.exit(1)
     except Exception as e:
         click.echo(f"\n❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@main.command()
+@click.argument("name")
+def validate(name: str) -> None:
+    """
+    Validate a skill file.
+    
+    Checks:
+    - Skill file format and structure
+    - Required sections (name, description, instructions)
+    - JSON examples syntax
+    - Safety rules format
+    - Tool references (if any)
+    
+    Examples:
+        clis validate git
+        clis validate my-custom-skill
+    """
+    from clis.router import SkillRouter
+    from clis.skills.validator import SkillValidator
+    
+    router = SkillRouter()
+    validator = SkillValidator()
+    
+    # Load skill
+    skill = router.get_skill(name)
+    
+    if not skill:
+        click.echo(f"❌ Skill '{name}' not found", err=True)
+        click.echo("\nAvailable skills:")
+        skills = router.scan_skills()
+        for s in skills:
+            click.echo(f"  - {s.name}")
+        sys.exit(1)
+    
+    click.echo(f"🔍 Validating skill: {skill.name}")
+    click.echo(f"   Location: {skill.file_path}")
+    click.echo()
+    
+    # Validate
+    is_valid, errors = validator.validate(skill)
+    
+    if is_valid:
+        click.echo("✅ Skill is valid!")
+        click.echo()
+        click.echo("Skill details:")
+        click.echo(f"  Name: {skill.name}")
+        click.echo(f"  Description: {skill.description[:100]}..." if len(skill.description) > 100 else f"  Description: {skill.description}")
+        
+        if hasattr(skill, 'required_tools') and skill.required_tools:
+            click.echo(f"  Required tools: {', '.join(skill.required_tools)}")
+        
+        if skill.safety_rules:
+            click.echo(f"  Safety rules: {len(skill.safety_rules)} rule(s)")
+        
+        if skill.platform_compatibility:
+            click.echo(f"  Platform support: {', '.join(skill.platform_compatibility.keys())}")
+    else:
+        click.echo("❌ Skill validation failed:")
+        click.echo()
+        for error in errors:
+            click.echo(f"  - {error}")
+        click.echo()
+        click.echo(f"💡 Fix the errors and run: clis validate {name}")
+        sys.exit(1)
+
+
+@main.command()
+@click.argument("name")
+@click.argument("query", required=False)
+@click.option("--dry-run", is_flag=True, help="Show what would be executed without running")
+def test(name: str, query: Optional[str], dry_run: bool) -> None:
+    """
+    Test a skill with a sample query.
+    
+    This command helps you test if a skill works correctly by:
+    1. Loading the skill
+    2. Generating commands based on your query
+    3. Optionally executing the commands (or showing them with --dry-run)
+    
+    Examples:
+        clis test git "show status"
+        clis test docker "list containers" --dry-run
+        clis test my-skill  # Will prompt for query
+    """
+    from clis.router import SkillRouter, SkillMatcher
+    from clis.agent import Agent
+    
+    config_manager = ConfigManager()
+    
+    # Check if config exists
+    if not config_manager.config_exists():
+        click.echo("⚠️  Configuration not found. Please run 'clis init' first.", err=True)
+        sys.exit(1)
+    
+    router = SkillRouter()
+    agent = Agent(config_manager)
+    
+    # Load skill
+    skill = router.get_skill(name)
+    
+    if not skill:
+        click.echo(f"❌ Skill '{name}' not found", err=True)
+        sys.exit(1)
+    
+    # Get query
+    if not query:
+        query = click.prompt("Enter test query")
+    
+    click.echo(f"🧪 Testing skill: {skill.name}")
+    click.echo(f"   Query: {query}")
+    click.echo()
+    
+    try:
+        # Build system prompt
+        system_prompt = f"""
+You are executing the "{skill.name}" skill.
+
+{skill.instructions}
+
+Generate commands based on the user's request.
+"""
+        
+        # Generate commands
+        click.echo("🤖 Generating commands...")
+        response = agent.generate_json(query, system_prompt)
+        
+        commands = response.get("commands", [])
+        explanation = response.get("explanation", "")
+        
+        if not commands:
+            click.echo("⚠️  No commands generated", err=True)
+            sys.exit(1)
+        
+        click.echo()
+        click.echo("📋 Generated commands:")
+        for i, cmd in enumerate(commands, 1):
+            click.echo(f"  {i}. {cmd}")
+        
+        click.echo()
+        click.echo(f"💡 Explanation: {explanation}")
+        
+        if dry_run:
+            click.echo()
+            click.echo("✅ Dry-run mode: Commands not executed")
+        else:
+            click.echo()
+            if click.confirm("Execute these commands?", default=False):
+                from clis.executor import CommandExecutor
+                executor = CommandExecutor(config_manager)
+                
+                for i, cmd in enumerate(commands, 1):
+                    click.echo(f"\n▶️  Executing command {i}/{len(commands)}: {cmd}")
+                    result = executor.execute(cmd)
+                    
+                    if result.success:
+                        click.echo(f"✅ Success")
+                        if result.output:
+                            click.echo(result.output)
+                    else:
+                        click.echo(f"❌ Failed: {result.error}")
+                        if not click.confirm("Continue with next command?", default=True):
+                            break
+            else:
+                click.echo("Test cancelled.")
+    
+    except Exception as e:
+        click.echo(f"\n❌ Test failed: {e}", err=True)
+        import traceback
+        if config_manager.load_base_config().output.level == "debug":
+            traceback.print_exc()
         sys.exit(1)
 
 
@@ -1299,13 +1546,14 @@ def config_set(key: str, value: str) -> None:
         sys.exit(1)
 
 
-def _create_skill_template(name: str, config_manager: ConfigManager) -> None:
+def _create_skill_template(name: str, config_manager: ConfigManager, tools: Optional[List[str]] = None) -> None:
     """
     Create a basic skill template (direct mode).
     
     Args:
         name: Skill name
         config_manager: Configuration manager instance
+        tools: Optional list of required tools
     """
     from pathlib import Path
     from clis.utils.platform import get_skills_dir, ensure_dir
@@ -1323,10 +1571,24 @@ def _create_skill_template(name: str, config_manager: ConfigManager) -> None:
             return
     
     click.echo(f"📝 Creating skill template: {name}")
+    if tools:
+        click.echo(f"   Required tools: {', '.join(tools)}")
     click.echo()
     
+    # Create YAML front matter if tools are specified
+    yaml_header = ""
+    if tools:
+        yaml_header = f"""---
+name: {name}
+description: [简要描述这个 skill 的功能]
+tools:
+{chr(10).join(f'  - {tool}' for tool in tools)}
+---
+
+"""
+    
     # Create basic skill template
-    template = f"""# Skill Name: {name}
+    template = f"""{yaml_header}# Skill Name: {name}
 
 ## Description
 [简要描述这个 skill 的功能]
@@ -1401,22 +1663,24 @@ false
         click.echo("Next steps:")
         click.echo(f"  1. Edit the template: clis edit {filename}")
         click.echo(f"  2. Validate: clis validate {filename}")
-        click.echo(f"  3. Use it: clis run \"[your query]\"")
+        click.echo(f"  3. Test: clis test {filename} \"your test query\"")
+        click.echo(f"  4. Use it: clis run \"[your query]\"")
         click.echo()
-        click.echo("💡 Tip: Use 'clis new \"description\" --auto' to generate with AI")
+        click.echo("💡 Tip: Use 'clis create \"description\" --auto' to generate with AI")
     
     except Exception as e:
         click.echo(f"\n❌ Error: {e}", err=True)
         sys.exit(1)
 
 
-def _create_skill_with_llm(prompt: str, config_manager: ConfigManager) -> None:
+def _create_skill_with_llm(prompt: str, config_manager: ConfigManager, tools: Optional[List[str]] = None) -> None:
     """
     Create a skill using LLM (auto mode).
     
     Args:
         prompt: User's description/prompt for the skill
         config_manager: Configuration manager instance
+        tools: Optional list of required tools
     """
     from pathlib import Path
     from clis.agent import Agent
@@ -1429,11 +1693,24 @@ def _create_skill_with_llm(prompt: str, config_manager: ConfigManager) -> None:
     try:
         agent = Agent(config_manager)
         
-        system_prompt = """
+        tools_section = ""
+        if tools:
+            tools_section = f"""
+If tools are specified, add YAML front matter at the beginning:
+---
+name: [Skill Name]
+description: [Brief description]
+tools:
+{chr(10).join(f'  - {tool}' for tool in tools)}
+---
+
+"""
+        
+        system_prompt = f"""
 You are a skill template generator for CLIS (Command Line Interface Skills).
 Generate a complete skill file in Markdown format based on the user's description.
 
-The skill MUST follow this exact format:
+{tools_section}The skill MUST follow this exact format:
 
 # Skill Name: [Descriptive Name]
 
@@ -1497,10 +1774,14 @@ IMPORTANT:
 6. Make instructions clear and actionable
 """
         
+        tools_info = ""
+        if tools:
+            tools_info = f"\n\nRequired tools for this skill: {', '.join(tools)}"
+        
         user_prompt = f"""
 Generate a complete CLIS skill based on this description:
 
-{prompt}
+{prompt}{tools_info}
 
 Generate the complete skill file content following the template format exactly.
 """
