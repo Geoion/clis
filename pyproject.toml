@@ -15,12 +15,13 @@ dependencies = [
     "rich>=13.7.0",
     "markdown-it-py>=3.0.0",
     "requests>=2.31.0",
+    "psutil>=5.9.0",
 ]
 keywords = ["cli", "terminal", "ai", "assistant", "automation", "skill"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
