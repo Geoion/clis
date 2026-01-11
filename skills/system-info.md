@@ -1,3 +1,14 @@
+---
+name: System Info
+version: 1.0.0
+description: 显示系统信息，包括 CPU、内存、磁盘使用情况、进程信息等。专为 DeepSeek/Qwen/Ollama 优化。
+tools:
+  - system_info
+  - list_processes
+  - get_env
+  - check_command
+---
+
 # Skill Name: System Info
 
 ## Description
