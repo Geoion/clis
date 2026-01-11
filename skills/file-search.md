@@ -1,3 +1,14 @@
+---
+name: File Search
+version: 1.0.0
+description: 在文件系统中搜索文件和内容。支持按名称、内容、类型等多种方式搜索。专为 DeepSeek/Qwen/Ollama 优化。
+tools:
+  - search_files
+  - read_file
+  - file_tree
+  - get_file_info
+---
+
 # Skill Name: File Search
 
 ## Description
