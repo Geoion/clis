@@ -31,6 +31,11 @@ class GitDiffTool(Tool):
                     "type": "string",
                     "description": "Specific file path to show diff for (relative to git root)"
                 },
+                "files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Multiple file paths to show diff for (alternative to 'file')"
+                },
                 "staged": {
                     "type": "boolean",
                     "default": False,
@@ -49,8 +54,8 @@ class GitDiffTool(Tool):
             "required": []
         }
     
-    def execute(self, file: Optional[str] = None, staged: bool = False,
-                commit: Optional[str] = None, unified: int = 3) -> ToolResult:
+    def execute(self, file: Optional[str] = None, files: Optional[list] = None, 
+                staged: bool = False, commit: Optional[str] = None, unified: int = 3) -> ToolResult:
         """Execute git diff."""
         try:
             cmd = ["git", "diff", f"-U{unified}"]
@@ -60,6 +65,12 @@ class GitDiffTool(Tool):
             
             if commit:
                 cmd.append(commit)
+            
+            # Support both 'file' (singular) and 'files' (plural)
+            if files:
+                # If 'files' is provided, use the first file
+                if isinstance(files, list) and len(files) > 0:
+                    file = files[0]
             
             if file:
                 cmd.append("--")
