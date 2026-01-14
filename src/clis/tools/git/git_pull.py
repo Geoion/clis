@@ -53,6 +53,16 @@ class GitPullTool(Tool):
     def is_readonly(self) -> bool:
         return False  # Write operation (modifies working directory)
     
+    @property
+    def risk_score(self) -> int:
+        """Git pull is high risk - can overwrite local changes."""
+        return 70
+    
+    @property
+    def requires_confirmation(self) -> bool:
+        """Git pull requires confirmation as it modifies local state."""
+        return True
+    
     def execute(
         self,
         remote: str = "origin",

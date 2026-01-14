@@ -167,7 +167,7 @@ class RiskActionsConfig(BaseModel):
 
     low: str = Field(default="execute", description="Action for low risk")
     medium: str = Field(default="confirm", description="Action for medium risk")
-    high: str = Field(default="dry_run", description="Action for high risk")
+    high: str = Field(default="confirm", description="Action for high risk")
     critical: str = Field(default="block", description="Action for critical risk")
 
 

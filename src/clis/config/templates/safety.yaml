@@ -109,7 +109,7 @@ risk:
   actions:
     low: execute        # Execute directly (if dry-run disabled)
     medium: confirm     # Require user confirmation
-    high: dry_run       # Force dry-run preview
+    high: confirm       # Require user confirmation (changed from dry_run)
     critical: block     # Block execution
 
 # Confirmation Configuration | 确认配置

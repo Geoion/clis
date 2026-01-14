@@ -64,6 +64,22 @@ class GitBranchTool(Tool):
     def is_readonly(self) -> bool:
         return False  # Can modify branches
     
+    @property
+    def risk_score(self) -> int:
+        """
+        Git branch varies in risk by action.
+        Default to medium risk, but delete operations are high risk.
+        """
+        return 60
+    
+    @property
+    def requires_confirmation(self) -> bool:
+        """
+        Branch operations that modify state require confirmation.
+        The actual risk is evaluated per-action in the interactive agent.
+        """
+        return False  # Will be dynamically evaluated based on action
+    
     def execute(
         self,
         action: str = "list",

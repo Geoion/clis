@@ -57,6 +57,16 @@ class EditFileTool(Tool):
     def is_readonly(self) -> bool:
         return False  # This is a write operation
     
+    @property
+    def risk_score(self) -> int:
+        """Edit file is medium risk - modifies files."""
+        return 50
+    
+    @property
+    def requires_confirmation(self) -> bool:
+        """Edit file requires confirmation as it modifies files."""
+        return True
+    
     def execute(self, path: str, old_content: str, new_content: str, dry_run: bool = False) -> ToolResult:
         """
         Execute file edit using diff mode.
