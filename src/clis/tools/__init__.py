@@ -54,6 +54,8 @@ from clis.tools.docker import (
     DockerLogsTool,
     DockerInspectTool,
     DockerStatsTool,
+    DockerImagesTool,
+    DockerRmiTool,
 )
 
 # System tools
@@ -110,6 +112,8 @@ __all__ = [
     "DockerLogsTool",
     "DockerInspectTool",
     "DockerStatsTool",
+    "DockerImagesTool",
+    "DockerRmiTool",
     # System
     "SystemInfoTool",
     "CheckCommandTool",
