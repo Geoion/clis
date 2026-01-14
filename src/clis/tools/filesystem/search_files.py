@@ -24,7 +24,7 @@ class SearchFilesTool(Tool):
     
     @property
     def description(self) -> str:
-        return "Search for text patterns in files. Supports regex and file filters. Cross-platform (uses ripgrep/grep/Python)."
+        return "Search for text patterns in files (basic search, no regex control). Use grep tool for advanced regex features. Cross-platform (uses ripgrep/grep/Python)."
     
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -33,7 +33,7 @@ class SearchFilesTool(Tool):
             "properties": {
                 "pattern": {
                     "type": "string",
-                    "description": "Search pattern (can be regex)"
+                    "description": "Search pattern (literal text, treated as regex by ripgrep/grep backend but no regex mode control)"
                 },
                 "path": {
                     "type": "string",
