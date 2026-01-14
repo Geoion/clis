@@ -137,8 +137,12 @@ Follow the above skill instructions carefully when executing this task.
             
             return f"""You are an expert command-line assistant that executes tasks efficiently.
 
+🖥️  SYSTEM INFORMATION:
 Platform: {platform} | Shell: {shell}
 Available tools: {', '.join([t.name for t in self.tools])}
+
+⚠️  IMPORTANT: When providing platform-specific guidance, use ONLY the information for "{platform}". 
+Do NOT list multiple platforms (e.g., "macOS/Windows" or "Linux/macOS") - be specific to the current platform.
 
 {examples}
 
@@ -166,6 +170,18 @@ User request: {query}
 3. For simple tasks (deletion, single commit), act immediately
 4. When task is complete, respond with {{"type": "done", "summary": "..."}}
 5. Use specific tools (delete_file, write_file) instead of execute_command
+6. **ERROR HANDLING**: If a tool fails with an error:
+   - DON'T immediately give up or repeat the same action
+   - Analyze the error message and provide helpful guidance to the user
+   - For "Cannot connect to Docker daemon": Tell user to start Docker Desktop/service
+   - For "command not found": Tell user to install the missing tool
+   - For "permission denied": Explain why and suggest solutions
+   - Mark as done with clear explanation of the problem and solution
+7. **USER REJECTION HANDLING**: If user rejects a tool (see "User rejected tool" in recent actions):
+   - DON'T just give up and mark as done
+   - Ask the user if they want to modify the operation (e.g., delete fewer images)
+   - Provide alternatives or ask for clarification
+   - Only mark as done if the user clearly wants to abort the task
 {tool_history_summary}
 
 📤 RESPONSE FORMAT (respond with ONLY ONE action):
@@ -248,21 +264,35 @@ OR when complete:
                 params = action.get("params", {})
                 
                 # Check for problematic duplicate tool calls
-                # Allow: git_status, git_log (query tools can be repeated)
-                # Detect: 3 consecutive calls to the same tool with same parameters
-                call_signature = f"{tool_name}({params})"
+                # Whitelist: Read-only tools that can be safely repeated
+                readonly_tools = {
+                    'read_file', 'list_files', 'file_tree', 'search_files', 'grep', 'get_file_info',
+                    'git_status', 'git_log', 'git_diff', 
+                    'docker_ps', 'docker_logs', 'docker_inspect', 'docker_stats', 'docker_images',
+                    'system_info', 'check_command', 'get_env', 'list_processes', 'check_port',
+                    'http_request'  # GET requests are typically read-only
+                }
                 
-                # Only check recent consecutive calls
-                recent_same_calls = []
-                for call in reversed(self.tool_call_history[-3:]):
-                    call_sig = f"{call['tool']}({call['params']})"
-                    if call_sig == call_signature:
-                        recent_same_calls.append(call)
-                    else:
-                        break  # Stop when encountering a different call
+                # Only check for loops on non-readonly tools
+                should_check_loop = tool_name not in readonly_tools
                 
-                # If 3 consecutive calls are the same, it indicates a loop
-                if len(recent_same_calls) >= 2:
+                if should_check_loop:
+                    # Detect: 3 consecutive calls to the same tool with same parameters
+                    call_signature = f"{tool_name}({params})"
+                    
+                    # Only check recent consecutive calls
+                    recent_same_calls = []
+                    for call in reversed(self.tool_call_history[-3:]):
+                        call_sig = f"{call['tool']}({call['params']})"
+                        if call_sig == call_signature:
+                            recent_same_calls.append(call)
+                        else:
+                            break  # Stop when encountering a different call
+                else:
+                    recent_same_calls = []
+                
+                # If 3 consecutive calls are the same (for non-readonly tools), it indicates a loop
+                if should_check_loop and len(recent_same_calls) >= 2:
                     observation = f"⚠️ LOOP DETECTED: You called {tool_name} {len(recent_same_calls)+1} times in a row! CHANGE YOUR APPROACH!"
                     
                     self.tool_call_history.append({
@@ -307,10 +337,15 @@ OR when complete:
                         "risk_level": risk_level
                     }
                     
-                    # If tool requires confirmation, wait for user approval
+                    # If tool requires confirmation, we stop here
+                    # CLI will handle confirmation and call execute_tool
+                    # Then we'll continue on next iteration
                     if requires_confirmation:
-                        # Caller (CLI) will handle confirmation
-                        return
+                        # Don't execute tool here, let CLI handle it
+                        # But don't return - we need to continue the loop
+                        # Update context with the observation
+                        current_context = f"Waiting for user confirmation for {tool_name}..."
+                        continue  # Continue to next iteration of the for loop
                     
                     # Execute
                     result = self.tool_executor.execute(tool_name, params)
