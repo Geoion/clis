@@ -7,6 +7,8 @@ from clis.tools.system.check_command import CheckCommandTool
 from clis.tools.system.get_env import GetEnvTool
 from clis.tools.system.list_processes import ListProcessesTool
 from clis.tools.system.run_terminal_cmd import RunTerminalCmdTool
+from clis.tools.system.list_terminals import ListTerminalsTool
+from clis.tools.system.read_terminal_output import ReadTerminalOutputTool
 
 __all__ = [
     "SystemInfoTool",
@@ -14,4 +16,6 @@ __all__ = [
     "GetEnvTool",
     "ListProcessesTool",
     "RunTerminalCmdTool",
+    "ListTerminalsTool",
+    "ReadTerminalOutputTool",
 ]
