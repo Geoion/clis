@@ -50,6 +50,11 @@ class GitCommitTool(Tool):
         """Git commit is medium risk - creates permanent history."""
         return 50
     
+    @property
+    def requires_confirmation(self) -> bool:
+        """Git commit requires confirmation as it creates permanent history."""
+        return True
+    
     def execute(self, message: str, amend: bool = False) -> ToolResult:
         """Execute git commit."""
         try:

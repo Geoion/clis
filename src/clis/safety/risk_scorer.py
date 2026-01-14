@@ -104,8 +104,9 @@ class RiskScorer:
             # Force flags significantly increase risk
             score = max(score, 80)  # Ensure at least high risk
             score = min(score + 15, 100)
-        elif re.search(r'\s-f\b', command):
-            # Check for -f as a standalone flag (not part of another flag)
+        elif re.search(r'(?:^|\s)-f(?:\s|$)', command):
+            # Check for -f as a standalone flag (not part of another flag or path)
+            # Matches -f preceded by start or space, followed by space or end
             score = max(score, 80)
             score = min(score + 15, 100)
         
