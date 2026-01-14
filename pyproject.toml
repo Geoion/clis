@@ -41,6 +41,27 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.7.0",
 ]
+# Advanced code analysis (LSP-based)
+lsp = [
+    "jedi>=0.19.0",              # Python code intelligence
+    "tree-sitter>=0.21.0",       # Syntax tree parsing
+    "tree-sitter-python>=0.21.0", # Python grammar
+]
+# Semantic search (embedding-based)
+semantic = [
+    "sentence-transformers>=2.2.0",  # Lightweight embeddings
+    "numpy>=1.24.0",                  # Vector operations
+    "faiss-cpu>=1.7.4",              # Fast similarity search (CPU version)
+]
+# All advanced features
+all = [
+    "jedi>=0.19.0",
+    "tree-sitter>=0.21.0",
+    "tree-sitter-python>=0.21.0",
+    "sentence-transformers>=2.2.0",
+    "numpy>=1.24.0",
+    "faiss-cpu>=1.7.4",
+]
 
 [project.urls]
 Homepage = "https://github.com/eskiyin/clis"
