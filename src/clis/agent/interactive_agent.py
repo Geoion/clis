@@ -188,24 +188,40 @@ User request: {query}
 {skill_section}{phase_hint}
 
 📋 TOOL DESCRIPTIONS:
+
+🔍 SEARCH & ANALYSIS:
+- codebase_search: Semantic search (meaning-based, query like "how do we handle auth?")
+- find_definition: Find where a symbol is defined (function, class, variable)
+- find_references: Find all usages/references of a symbol
+- get_symbols: Get outline of a file (all functions, classes, methods)
+- search_files: Basic text search (literal matching, no regex)
+- grep: Advanced search with regex and context support
+
+📝 FILE OPERATIONS:
+- read_file: Read file content (params: path, offset, limit)
+- write_file: Write/create file (params: path, content) - requires confirmation
+- edit_file: Edit using search-replace (params: path, old_content, new_content) - PREFERRED for modifications
+- search_replace: Batch find-replace across multiple files (supports regex) - requires confirmation
+- insert_code: Insert code at specific line (params: path, line, content)
+- delete_lines: Delete specific lines (params: path, start_line, end_line)
+- delete_file: Delete a file (params: path) - requires confirmation
+- file_tree: View directory structure (params: path, max_depth, show_hidden, pattern)
+- list_files: List files in a directory
+- read_lints: Read linter errors for files
+
+📦 GIT OPERATIONS:
 - git_status: Check current git status
 - git_diff: View changes in files
 - git_add: Stage files for commit (can stage multiple: files=["a.py", "b.py"])
 - git_commit: Commit staged changes with a message
-- file_tree: View directory structure (params: path, max_depth, show_hidden, pattern)
-- read_file: Read file content (params: path, offset, limit)
-- write_file: Write content to file (params: path, content) - requires confirmation
-- edit_file: Edit existing file using search and replace (params: path, old_string, new_string) - requires confirmation
-- delete_file: Delete a file (params: path) - requires confirmation
-- search_files: Basic text search (literal matching, no regex)
-  * Params: pattern (required), path (default: "."), file_pattern, case_sensitive, max_results
-  * Example: {{"tool": "search_files", "params": {{"pattern": "TODO", "file_pattern": "*.py"}}}}
-  * ⚠️ Does NOT support: regex, ignore_case, context_lines
-- grep: Advanced search with regex and context support
-  * Params: pattern (required), path (default: "."), file_pattern, regex, ignore_case, max_results, context_lines
-  * Example: {{"tool": "grep", "params": {{"pattern": "class.*:", "regex": true, "file_pattern": "*.py"}}}}
-  * ⚠️ Does NOT support: limit (use max_results instead)
-- list_files: List files in a directory
+- git_push: Push commits to remote
+- git_pull: Pull updates from remote
+- git_branch: List/create/delete branches
+- git_checkout: Switch branches or restore files
+
+💻 TERMINAL & SYSTEM:
+- list_terminals: List all active terminals
+- read_terminal_output: Read output from a terminal
 - execute_command: Execute shell command (use only when no specific tool available)
 
 ⚠️ IMPORTANT RULES:
@@ -215,13 +231,19 @@ User request: {query}
 4. When task is complete, respond with {{"type": "done", "summary": "..."}}
 5. Use specific tools (delete_file, write_file, edit_file) instead of execute_command
 6. **PARAMETER NAMING**: Always use correct parameter names:
-   - search_files: pattern, path, file_pattern, case_sensitive, max_results (NO regex, ignore_case, or context_lines!)
+   - codebase_search: query (natural language), target_directories, file_pattern, max_results
+   - find_definition/find_references: symbol, path, file_pattern
+   - get_symbols: path, symbol_types, include_private
+   - search_replace: pattern, replacement, path, file_pattern, regex, dry_run
+   - insert_code: path, line (0-indexed), content
+   - delete_lines: path, start_line, end_line
+   - search_files: pattern, path, file_pattern, case_sensitive, max_results (NO regex!)
    - grep: pattern, path, file_pattern, regex, ignore_case, max_results, context_lines (NO limit!)
-   - edit_file: path, old_string, new_string (for search-and-replace editing)
-   - write_file: path, content (for creating new files or overwriting entire file)
-   - file_tree: path, max_depth, show_hidden, pattern (use 'pattern' NOT 'file_pattern')
-   - read_file: path, offset, limit (use 'path' NOT 'file' or 'filename')
-   - If unsure, check the tool description above carefully - each tool has DIFFERENT parameters!
+   - edit_file: path, old_content, new_content (use for targeted edits)
+   - write_file: path, content (use for new files or complete rewrites)
+   - list_terminals: (no parameters)
+   - read_terminal_output: terminal_id, tail_lines, grep_pattern
+   - If unsure, check the tool description above carefully!
 7. **ERROR HANDLING**: If a tool fails with an error:
    - DON'T immediately give up or repeat the same action
    - Analyze the error message and provide helpful guidance to the user
