@@ -1,0 +1,51 @@
+# =============================================================================
+# CLIS Memory Management Configuration
+# =============================================================================
+
+# Memory directory
+memory_dir: .clis_memory
+
+# Task memory retention
+task_retention:
+  # Days to keep completed tasks before archiving
+  retention_days: 7
+  
+  # Automatically archive old tasks
+  auto_archive: true
+  
+  # Keep failed tasks for debugging
+  keep_failed_days: 1
+  
+  # Maximum concurrent active tasks
+  max_active_tasks: 10
+
+# Cleanup policy
+cleanup:
+  # Enable automatic cleanup on startup
+  auto_cleanup: true
+  
+  # Cleanup frequency
+  # Options: startup, daily, never
+  frequency: startup
+
+# Knowledge extraction
+knowledge:
+  # Enable automatic knowledge extraction
+  auto_extract: true
+  
+  # Minimum task success iterations to extract knowledge
+  min_iterations: 5
+  
+  # Use LLM to summarize knowledge
+  use_llm_summary: true
+
+# User preferences
+user:
+  # Ask before deleting any memory
+  confirm_delete: true
+  
+  # Show memory stats on completion
+  show_stats: true
+  
+  # Allow manual editing of memory files
+  allow_editing: true
