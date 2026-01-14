@@ -100,9 +100,13 @@ class RiskScorer:
                 score = 95
         
         # Additional risk factors
-        if "--force" in command or "-f" in command.split():
+        if "--force" in command:
             # Force flags significantly increase risk
             score = max(score, 80)  # Ensure at least high risk
+            score = min(score + 15, 100)
+        elif re.search(r'\s-f\b', command):
+            # Check for -f as a standalone flag (not part of another flag)
+            score = max(score, 80)
             score = min(score + 15, 100)
         
         if "-rf" in command or "-fr" in command:

@@ -76,10 +76,13 @@ class GitBranchTool(Tool):
     def requires_confirmation(self) -> bool:
         """
         Branch modification operations require confirmation.
-        List operation is safe and doesn't need confirmation.
-        Risk is dynamically evaluated based on action parameters.
+        
+        Note: While list operations are safe, we require confirmation for the tool
+        as a whole since it can perform destructive operations (delete).
+        The actual risk is dynamically evaluated in score_tool_operation based on
+        the action parameter (list=60, create=50, delete=75).
         """
-        return True  # Changed to True - all modifications need confirmation
+        return True
     
     def execute(
         self,
