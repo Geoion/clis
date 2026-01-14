@@ -7,6 +7,9 @@ tools:
   - docker_logs
   - docker_inspect
   - docker_stats
+  - docker_images
+  - docker_rmi
+  - run_terminal_cmd
   - read_file
   - search_files
 ---
@@ -24,6 +27,7 @@ tools:
 - 识别常见场景：运行容器、构建镜像、查看日志、清理资源
 - 生成安全且符合最佳实践的 Docker 命令
 - 考虑容器生命周期和资源管理
+- **错误处理**: 如果遇到 "Cannot connect to the Docker daemon" 错误，提示用户启动 Docker Desktop 或 Docker 服务
 
 **执行步骤**:
 
@@ -38,6 +42,8 @@ tools:
    - 如果用户说"web容器"、"nginx"，需要先确认实际容器名
    - 如果说"所有容器"，需要先列出容器列表
    - **在工具调用模式下，使用 docker_ps 工具获取实际容器名**
+   - **查看镜像时，使用 docker_images 工具而不是执行命令**
+   - **删除镜像时，使用 docker_rmi 工具而不是执行命令**
 
 **步骤 2: 生成 Docker 命令**
 
@@ -49,12 +55,16 @@ tools:
    - 查看日志：`docker logs [实际容器名]`
    - 进入容器：`docker exec -it [实际容器名] /bin/bash`
 
-2.2 **镜像操作命令**
-   - 拉取镜像：`docker pull [镜像名:标签]`
-   - 构建镜像：`docker build -t [镜像名] [路径]`
-   - 查看镜像：`docker images`
-   - 删除镜像：`docker rmi [镜像名]`
-   - 推送镜像：`docker push [镜像名]`
+2.2 **镜像操作（优先使用专门工具）**
+   - 查看镜像：**使用 docker_images 工具**（参数：all, filter, format）
+     - 查看所有镜像：`docker_images()`
+     - 查看悬空镜像：`docker_images(filter="dangling=true")`
+   - 删除镜像：**使用 docker_rmi 工具**（参数：images, force）
+     - 删除指定镜像：`docker_rmi(images=["image_id"])`
+     - 强制删除：`docker_rmi(images=["image_id"], force=true)`
+   - 拉取镜像：`docker pull [镜像名:标签]`（使用 run_terminal_cmd）
+   - 构建镜像：`docker build -t [镜像名] [路径]`（使用 run_terminal_cmd）
+   - 推送镜像：`docker push [镜像名]`（使用 run_terminal_cmd）
 
 2.3 **清理操作命令**
    - 清理停止的容器：`docker container prune -f`
@@ -100,20 +110,29 @@ tools:
 
 **步骤 5: 关键规则（CRITICAL）**
 
-5.1 **容器名称规则**
+5.1 **错误处理规则**
+   - ✅ DO: 如果工具返回 "Cannot connect to the Docker daemon" 错误，根据系统平台给出精确的建议：
+     - **仅 macOS**: "请启动 Docker Desktop"
+     - **仅 Windows**: "请启动 Docker Desktop"
+     - **仅 Linux**: "请运行 'sudo systemctl start docker' 启动 Docker 服务"
+     - **重要**: 检查系统提示中的 "Platform:" 字段，只给出对应平台的建议，不要列出所有平台
+   - ❌ DON'T: 遇到错误就立即结束，要提供解决方案
+   - ❌ DON'T: 同时给出多个平台的建议，用户只需要看到自己平台的解决方案
+
+5.2 **容器名称规则**
    - ✅ DO: 使用实际容器名（从 docker_ps 工具获取）
    - ❌ DON'T: 使用假设的名称（container1, container2）
 
-5.2 **安全规则**
+5.3 **安全规则**
    - ✅ DO: 删除特定容器 `docker rm my-container`
    - ❌ DON'T: 删除所有容器 `docker rm $(docker ps -aq)`
    - ⚠️ WARNING: `docker system prune -a --volumes -f` 会删除所有数据
 
-5.3 **端口映射规则**
+5.4 **端口映射规则**
    - ✅ DO: 明确端口 `-p 8080:80`
    - ⚠️ WARNING: `-p 80:80` 需要 root 权限
 
-5.4 **最佳实践**
+5.5 **最佳实践**
    - ✅ DO: 使用具名容器 `--name my-nginx`
    - ✅ DO: 后台运行 `-d`
    - ✅ DO: 自动重启 `--restart unless-stopped`
@@ -229,21 +248,66 @@ tools:
 }
 ```
 
-### 场景 8: 查看镜像
+### 场景 8: 查看镜像（使用工具）
 
 **用户输入**: 列出所有镜像
 
-**AI 输出**:
+**AI 输出（工具调用模式）**:
 ```json
 {
-  "commands": [
-    "docker images"
-  ],
-  "explanation": "列出本地所有 Docker 镜像，包括仓库名、标签、镜像 ID、创建时间和大小。"
+  "type": "tool",
+  "tool": "docker_images",
+  "params": {}
 }
 ```
 
-### 场景 9: 清理未使用的资源
+**说明**: 使用 docker_images 工具直接获取镜像列表，无需执行命令。
+
+**查看悬空镜像（<none>）**:
+```json
+{
+  "type": "tool",
+  "tool": "docker_images",
+  "params": {
+    "filter": "dangling=true"
+  }
+}
+```
+
+### 场景 9: 删除悬空镜像（使用工具）
+
+**用户输入**: 删除所有 <none> 镜像
+
+**AI 输出（工具调用模式）**:
+
+**步骤 1: 先查看悬空镜像**
+```json
+{
+  "type": "tool",
+  "tool": "docker_images",
+  "params": {
+    "filter": "dangling=true"
+  }
+}
+```
+
+**步骤 2: 删除找到的镜像**
+```json
+{
+  "type": "tool",
+  "tool": "docker_rmi",
+  "params": {
+    "images": ["abc123", "def456"]
+  }
+}
+```
+
+**说明**: 
+- 先使用 docker_images 工具查找悬空镜像（REPOSITORY 为 <none> 的镜像）
+- 从输出中提取镜像 ID
+- 使用 docker_rmi 工具删除这些镜像
+
+### 场景 10: 清理未使用的资源
 
 **用户输入**: 清理 Docker 占用的空间
 
@@ -257,7 +321,7 @@ tools:
 }
 ```
 
-### 场景 10: 运行数据库容器
+### 场景 11: 运行数据库容器
 
 **用户输入**: 启动 MySQL 容器，密码是 root123
 
@@ -271,7 +335,7 @@ tools:
 }
 ```
 
-### 场景 11: 操作特定容器（工具调用模式）
+### 场景 12: 操作特定容器（工具调用模式）
 
 **用户输入**: 重启 web 容器
 
