@@ -196,6 +196,7 @@ class RiskScorer:
             "docker_logs": 10,
             "docker_inspect": 10,
             "docker_stats": 10,
+            "docker_images": 10,  # Read-only
             "system_info": 10,
             "check_command": 10,
             "get_env": 10,
@@ -211,6 +212,7 @@ class RiskScorer:
             
             # High risk - destructive or remote operations
             "delete_file": 75,
+            "docker_rmi": 75,  # Remove images
             "git_checkout": 70,
             "git_pull": 70,
             "git_push": 70,
@@ -246,6 +248,14 @@ class RiskScorer:
         if tool_name == "git_checkout" and parameters.get("file_path"):
             # Restoring files can discard changes
             score = 70
+        
+        if tool_name == "docker_rmi":
+            # Increase risk based on number of images and force flag
+            images = parameters.get("images", [])
+            if isinstance(images, list) and len(images) > 3:
+                score = min(score + 10, 85)  # More images = more risk
+            if parameters.get("force"):
+                score = min(score + 10, 90)  # Force delete is dangerous
         
         logger.debug(f"Risk score for tool '{tool_name}' with params {parameters}: {score}")
         
