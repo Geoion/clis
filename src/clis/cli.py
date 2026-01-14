@@ -578,6 +578,13 @@ def main(ctx: click.Context, verbose: bool, minimal: bool, debug: bool) -> None:
         click.echo(ctx.get_help())
 
 
+# Import memory CLI commands
+from clis.cli.memory_cli import memory_cli
+
+# Add memory command group
+main.add_command(memory_cli)
+
+
 @main.command()
 @click.argument("query")
 @click.option("--no-tool-calling", is_flag=True, help="Disable tool calling mode (use standard mode)")
