@@ -18,6 +18,16 @@ from clis.tools.filesystem.get_symbols import GetSymbolsTool
 from clis.tools.filesystem.insert_code import InsertCodeTool
 from clis.tools.filesystem.delete_lines import DeleteLinesTool
 
+# LSP-based tools (optional dependency)
+try:
+    from clis.tools.filesystem.lsp_definition import LSPDefinitionTool
+    from clis.tools.filesystem.lsp_references import LSPReferencesTool
+    LSP_TOOLS_AVAILABLE = True
+except ImportError:
+    LSP_TOOLS_AVAILABLE = False
+    LSPDefinitionTool = None
+    LSPReferencesTool = None
+
 __all__ = [
     "DeleteFileTool",
     "EditFileTool",
@@ -35,3 +45,7 @@ __all__ = [
     "InsertCodeTool",
     "DeleteLinesTool",
 ]
+
+# Add LSP tools if available
+if LSP_TOOLS_AVAILABLE:
+    __all__.extend(["LSPDefinitionTool", "LSPReferencesTool"])
