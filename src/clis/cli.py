@@ -77,10 +77,10 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
         from clis.agent.interactive_agent import InteractiveAgent
         from clis.tools import (
             ListFilesTool, ReadFileTool, ExecuteCommandTool, GitStatusTool, DockerPsTool,
-            DeleteFileTool, SearchFilesTool, FileTreeTool, WriteFileTool, GetFileInfoTool,
-            GitAddTool, GitCommitTool, GitDiffTool, GitLogTool,
+            DeleteFileTool, EditFileTool, GrepTool, ReadLintsTool, SearchFilesTool, FileTreeTool, WriteFileTool, GetFileInfoTool,
+            GitAddTool, GitBranchTool, GitCheckoutTool, GitCommitTool, GitDiffTool, GitLogTool, GitPullTool, GitPushTool,
             DockerLogsTool, DockerInspectTool, DockerStatsTool,
-            SystemInfoTool, CheckCommandTool, GetEnvTool, ListProcessesTool,
+            SystemInfoTool, CheckCommandTool, GetEnvTool, ListProcessesTool, RunTerminalCmdTool,
             HttpRequestTool, CheckPortTool
         )
         from clis.tools.registry import ToolRegistry
@@ -95,14 +95,21 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                 'git_status': GitStatusTool(),
                 'docker_ps': DockerPsTool(),
                 'delete_file': DeleteFileTool(),
+                'edit_file': EditFileTool(),
+                'grep': GrepTool(),
+                'read_lints': ReadLintsTool(),
                 'search_files': SearchFilesTool(),
                 'file_tree': FileTreeTool(),
                 'write_file': WriteFileTool(),
                 'get_file_info': GetFileInfoTool(),
                 'git_add': GitAddTool(),
+                'git_branch': GitBranchTool(),
+                'git_checkout': GitCheckoutTool(),
                 'git_commit': GitCommitTool(),
                 'git_diff': GitDiffTool(),
                 'git_log': GitLogTool(),
+                'git_pull': GitPullTool(),
+                'git_push': GitPushTool(),
                 'docker_logs': DockerLogsTool(),
                 'docker_inspect': DockerInspectTool(),
                 'docker_stats': DockerStatsTool(),
@@ -110,6 +117,7 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                 'check_command': CheckCommandTool(),
                 'get_env': GetEnvTool(),
                 'list_processes': ListProcessesTool(),
+                'run_terminal_cmd': RunTerminalCmdTool(),
                 'http_request': HttpRequestTool(),
                 'check_port': CheckPortTool(),
             }
@@ -134,10 +142,10 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
             # No skill matched, use all available tools
             tools = [
                 ListFilesTool(), ReadFileTool(), ExecuteCommandTool(), GitStatusTool(), DockerPsTool(),
-                DeleteFileTool(), SearchFilesTool(), FileTreeTool(), WriteFileTool(), GetFileInfoTool(),
-                GitAddTool(), GitCommitTool(), GitDiffTool(), GitLogTool(),
+                DeleteFileTool(), EditFileTool(), GrepTool(), ReadLintsTool(), SearchFilesTool(), FileTreeTool(), WriteFileTool(), GetFileInfoTool(),
+                GitAddTool(), GitBranchTool(), GitCheckoutTool(), GitCommitTool(), GitDiffTool(), GitLogTool(), GitPullTool(), GitPushTool(),
                 DockerLogsTool(), DockerInspectTool(), DockerStatsTool(),
-                SystemInfoTool(), CheckCommandTool(), GetEnvTool(), ListProcessesTool(),
+                SystemInfoTool(), CheckCommandTool(), GetEnvTool(), ListProcessesTool(), RunTerminalCmdTool(),
                 HttpRequestTool(), CheckPortTool()
             ]
         
@@ -256,7 +264,8 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                                 result_preview += "..."
                             console.print(f"   [green]✓[/green] [dim]{result_preview}[/dim]")
                         else:
-                            console.print(f"   [red]✗ Failed[/red]")
+                            error_msg = result.get('content', 'Unknown error')
+                            console.print(f"   [red]✗ Failed:[/red] [red]{error_msg}[/red]")
                 
                 elif step_type == "tool_result":
                     # 修复: 不要仅依赖 success 标志,检查是否有实际输出
@@ -269,7 +278,8 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                             result_preview += "..."
                         console.print(f"   [green]✓[/green] [dim]{result_preview}[/dim]")
                     else:
-                        console.print(f"   [red]✗ Failed[/red]")
+                        error_msg = content if content else "Unknown error"
+                        console.print(f"   [red]✗ Failed:[/red] [red]{error_msg}[/red]")
                 
                 elif step_type == "command":
                     step_number += 1
