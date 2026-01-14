@@ -1,22 +1,19 @@
 # =============================================================================
-# CLIS Safety Configuration | CLIS 安全配置
+# CLIS Safety Configuration
 # =============================================================================
 # This file defines security rules to prevent dangerous operations.
-# 本文件定义安全规则以防止危险操作。
 # =============================================================================
 
-# Blacklist Configuration | 黑名单配置
+# Blacklist Configuration
 blacklist:
-  # Enable blacklist checking | 启用黑名单检查
+  # Enable blacklist checking
   # Block commands matching dangerous patterns
-  # 阻止匹配危险模式的命令
   enabled: true
   
-  # Dangerous command patterns | 危险命令模式
+  # Dangerous command patterns
   # These commands will be blocked immediately
-  # 这些命令将被立即阻止
   patterns:
-    # File system destruction | 文件系统破坏
+    # File system destruction
     - "rm -rf /"
     - "rm -rf /*"
     - "rm -rf ~/*"
@@ -26,176 +23,151 @@ blacklist:
     - "> /dev/sda"
     - "> /dev/hda"
     
-    # System modification | 系统修改
+    # System modification
     - "chmod -R 777 /"
     - "chown -R"
     
-    # Network attacks | 网络攻击
+    # Network attacks
     - ":(){ :|:& };:"  # Fork bomb
     
-    # Package manager dangers | 包管理器危险操作
+    # Package manager dangers
     - "npm install -g"  # Requires explicit confirmation
     - "pip install --break-system-packages"
   
-  # Custom blacklist | 自定义黑名单
+  # Custom blacklist
   # Add your own dangerous patterns here
-  # 在此添加你自己的危险模式
   custom: []
 
-# Dry-Run Configuration | 预览模式配置
+# Dry-Run Configuration
 dry_run:
-  # Enable dry-run by default | 默认启用预览模式
+  # Enable dry-run by default
   # Show commands before executing them
-  # 在执行前显示命令
   enabled: true
   
-  # Force dry-run for high-risk operations | 对高风险操作强制预览
+  # Force dry-run for high-risk operations
   # These operations always require preview, even if dry-run is disabled
-  # 即使禁用预览模式，这些操作也始终需要预览
   force_for:
     - delete     # Any delete operations
     - modify     # File modifications
     - system     # System-level changes
     - network    # Network operations
   
-  # Auto-approve low-risk commands | 自动批准低风险命令
+  # Auto-approve low-risk commands
   # Skip confirmation for read-only operations
-  # 对只读操作跳过确认
   auto_approve_readonly: false
 
-# Sudo Configuration | Sudo 配置
+# Sudo Configuration
 sudo:
-  # Allow sudo commands | 允许 sudo 命令
+  # Allow sudo commands
   # If false, all sudo commands are blocked
-  # 如果为 false，所有 sudo 命令都将被阻止
   allowed: false
   
-  # Require explicit skill permission | 需要 Skill 显式授权
+  # Require explicit skill permission
   # Sudo commands only allowed if skill declares "allow_sudo: true"
-  # 仅当 Skill 声明 "allow_sudo: true" 时才允许 sudo 命令
   require_skill_permission: true
   
-  # Always confirm sudo commands | 始终确认 sudo 命令
+  # Always confirm sudo commands
   # Even if dry-run is disabled, sudo commands need confirmation
-  # 即使禁用预览模式，sudo 命令也需要确认
   always_confirm: true
 
-# Risk Scoring | 风险评分
+# Risk Scoring
 risk:
-  # Enable risk scoring | 启用风险评分
+  # Enable risk scoring
   # Assign risk levels to commands automatically
-  # 自动为命令分配风险级别
   enabled: true
   
-  # Risk thresholds | 风险阈值
+  # Risk thresholds
   thresholds:
     # Low risk (0-30): Read-only operations
-    # 低风险（0-30）：只读操作
     low: 30
     
     # Medium risk (31-60): Write operations
-    # 中风险（31-60）：写操作
     medium: 60
     
     # High risk (61-90): Delete/modify operations
-    # 高风险（61-90）：删除/修改操作
     high: 90
     
     # Critical risk (91-100): System-level operations
-    # 极高风险（91-100）：系统级操作
     critical: 100
   
-  # Actions based on risk level | 基于风险级别的操作
+  # Actions based on risk level
   actions:
     low: execute        # Execute directly (if dry-run disabled)
     medium: confirm     # Require user confirmation
     high: dry_run       # Force dry-run preview
     critical: block     # Block execution
 
-# Confirmation Configuration | 确认配置
+# Confirmation Configuration
 confirmation:
-  # Timeout for user confirmation in seconds | 用户确认超时时间（秒）
+  # Timeout for user confirmation in seconds
   # Auto-reject if no response within this time
-  # 如果在此时间内没有响应，则自动拒绝
   timeout: 60
   
-  # Default action on timeout | 超时时的默认操作
+  # Default action on timeout
   # Options: reject, accept
-  # 选项：reject（拒绝）、accept（接受）
   default_on_timeout: reject
   
-  # Show risk score in confirmation prompt | 在确认提示中显示风险分数
+  # Show risk score in confirmation prompt
   show_risk_score: true
 
-# Logging Configuration | 日志配置
+# Logging Configuration
 logging:
-  # Log all executed commands | 记录所有执行的命令
+  # Log all executed commands
   # Keep a history of what was executed
-  # 保留执行历史记录
   log_commands: true
   
-  # Log blocked commands | 记录被阻止的命令
+  # Log blocked commands
   # Track potentially dangerous attempts
-  # 跟踪潜在的危险尝试
   log_blocked: true
   
-  # Include timestamps | 包含时间戳
+  # Include timestamps
   include_timestamp: true
   
-  # Include risk scores | 包含风险分数
+  # Include risk scores
   include_risk_score: true
 
 
-# Context Management | 上下文管理
+# Context Management
 context_management:
-  # Enable intelligent context management | 启用智能上下文管理
+  # Enable intelligent context management
   enabled: true
   
-  # Maximum observations to keep | 保留的最大观察数量
+  # Maximum observations to keep
   max_observations: 10
   
-  # Compress when observations exceed this | 当观察超过此数量时压缩
+  # Compress when observations exceed this
   compression_threshold: 5
   
-  # Always keep critical observations | 始终保留关键观察
+  # Always keep critical observations
   keep_critical: true
   
-  # Always keep N most recent observations | 始终保留最近的 N 个观察
+  # Always keep N most recent observations
   keep_recent: 3
 
-# Auto-Approve Configuration | 自动批准配置
+# Auto-Approve Configuration
 auto_approve:
-  # Enable auto-approve for low-risk operations | 为低风险操作启用自动批准
+  # Enable auto-approve for low-risk operations
   enabled: false
   
-  # Maximum risk level to auto-approve | 自动批准的最大风险级别
+  # Maximum risk level to auto-approve
   # Options: low, medium, high
-  # 选项：low（低）、medium（中）、high（高）
   max_risk_level: low
   
-  # Only auto-approve read-only operations | 仅自动批准只读操作
+  # Only auto-approve read-only operations
   readonly_only: true
   
-  # Record all auto-approve decisions | 记录所有自动批准决策
+  # Record all auto-approve decisions
   record_decisions: true
 
-# Agent Configuration | Agent 配置
+# Agent Configuration
 agent:
-  # Maximum iterations for ReAct agent | ReAct Agent 最大迭代次数
+  # Maximum iterations for ReAct agent
   # Options: 
-  #   - "auto": Agent自己决定何时结束 (推荐)
-  #   - integer: 固定迭代次数上限 (如 20, 30, 50)
-  # 选项：
-  #   - "auto"：Agent 自己判断任务完成 (推荐)
-  #   - 整数：固定的迭代次数上限（例如：20、30、50）
   max_iterations: auto
   
-  # Safety limit for auto mode | 自动模式的安全上限
+  # Safety limit for auto mode
   # Prevents infinite loops when Agent doesn't stop properly
-  # 防止 Agent 无法正常停止时的无限循环
   auto_iterations_base: 100
   
   # Note: auto_iterations_per_file is deprecated
   # In auto mode, Agent decides when to stop based on task completion
-  # 注意：auto_iterations_per_file 已废弃
-  # 在 auto 模式下，Agent 根据任务完成情况自己决定何时停止

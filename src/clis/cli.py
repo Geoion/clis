@@ -268,7 +268,7 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                             console.print(f"   [red]✗ Failed:[/red] [red]{error_msg}[/red]")
                 
                 elif step_type == "tool_result":
-                    # 修复: 不要仅依赖 success 标志,检查是否有实际输出
+                    # Fix: Don't rely solely on success flag, check if there's actual output
                     content = step.get('content', '')
                     has_content = bool(content and content.strip())
                     
@@ -603,11 +603,11 @@ def init(provider: Optional[str]) -> None:
         click.echo("📋 Step 1: Choose your LLM provider")
         click.echo()
         click.echo("Available providers:")
-        click.echo("  1. DeepSeek (推荐) - Low cost, high quality")
+        click.echo("  1. DeepSeek (Recommended) - Low cost, high quality")
         click.echo("  2. Ollama - Local, completely offline")
         click.echo("  3. OpenAI - GPT-4, GPT-3.5")
         click.echo("  4. Anthropic - Claude")
-        click.echo("  5. Qwen - 通义千问")
+        click.echo("  5. Qwen - Qwen (Tongyi Qianwen)")
         click.echo()
         
         choice = click.prompt(
@@ -1486,27 +1486,27 @@ def config() -> None:
         # Print summary and tips in a panel
         tips_text = Text()
         tips_text.append("💡 ", style="bold yellow")
-        tips_text.append("使用提示\n\n", style="bold cyan")
+        tips_text.append("Usage Tips\n\n", style="bold cyan")
         tips_text.append("• ", style="bold")
-        tips_text.append("获取配置: ", style="bold green")
+        tips_text.append("Get config: ", style="bold green")
         tips_text.append("clis config-get <key>\n", style="dim")
-        tips_text.append("  示例: ", style="dim")
+        tips_text.append("  Example: ", style="dim")
         tips_text.append("clis config-get api.key\n\n", style="cyan")
         tips_text.append("• ", style="bold")
-        tips_text.append("设置配置: ", style="bold green")
+        tips_text.append("Set config: ", style="bold green")
         tips_text.append("clis config-set <key> <value>\n", style="dim")
-        tips_text.append("  示例: ", style="dim")
+        tips_text.append("  Example: ", style="dim")
         tips_text.append("clis config-set output.level verbose\n\n", style="cyan")
         tips_text.append("• ", style="bold")
-        tips_text.append("注意: ", style="bold yellow")
-        tips_text.append("表格中的 Key 不包含 Category 前缀\n", style="dim")
-        tips_text.append("  config-get/set 时使用不带 Category 的键名\n", style="dim")
-        tips_text.append("  例如使用 ", style="dim")
+        tips_text.append("Note: ", style="bold yellow")
+        tips_text.append("Keys in the table don't include Category prefix\n", style="dim")
+        tips_text.append("  Use keys without Category when using config-get/set\n", style="dim")
+        tips_text.append("  For example, use ", style="dim")
         tips_text.append("api.key", style="cyan")
-        tips_text.append(" 而不是 ", style="dim")
+        tips_text.append(" instead of ", style="dim")
         tips_text.append("llm.api.key\n\n", style="cyan")
         tips_text.append("🔒 ", style="bold red")
-        tips_text.append("API Key 已加密显示（仅显示首尾4位）", style="dim")
+        tips_text.append("API Key is masked (only first and last 4 characters shown)", style="dim")
         
         panel = Panel(
             tips_text,
@@ -1516,11 +1516,11 @@ def config() -> None:
         console.print(panel)
         
         # Print summary
-        console.print(f"[bold]总计:[/] [cyan]{len(all_items)}[/] 个配置项", justify="center")
+        console.print(f"[bold]Total:[/] [cyan]{len(all_items)}[/] configuration items", justify="center")
         console.print()
     
     except Exception as e:
-        console.print(f"[bold red]错误:[/] {e}")
+        console.print(f"[bold red]Error:[/] {e}")
         sys.exit(1)
 
 
@@ -1590,7 +1590,7 @@ def _create_skill_template(name: str, config_manager: ConfigManager, tools: Opti
     if tools:
         yaml_header = f"""---
 name: {name}
-description: [简要描述这个 skill 的功能]
+description: [Brief description of this skill's functionality]
 tools:
 {chr(10).join(f'  - {tool}' for tool in tools)}
 ---
@@ -1601,62 +1601,62 @@ tools:
     template = f"""{yaml_header}# Skill Name: {name}
 
 ## Description
-[简要描述这个 skill 的功能]
+[Brief description of this skill's functionality]
 
 ## Instructions
-你是一个 {name} 助手。根据用户需求生成合适的命令。
+You are a {name} assistant. Generate appropriate commands based on user requirements.
 
-1. **分析用户需求**：
-   - [需求类型 1]：使用 [命令/工具]
-   - [需求类型 2]：使用 [命令/工具]
-   - [需求类型 3]：使用 [命令/工具]
+1. **Analyze user requirements**:
+   - [Requirement type 1]: Use [command/tool]
+   - [Requirement type 2]: Use [command/tool]
+   - [Requirement type 3]: Use [command/tool]
 
-2. **平台适配**：
-   - macOS: [macOS 特定说明]
-   - Linux: [Linux 特定说明]
-   - Windows: [Windows 特定说明]
+2. **Platform adaptation**:
+   - macOS: [macOS specific instructions]
+   - Linux: [Linux specific instructions]
+   - Windows: [Windows specific instructions]
 
-3. **生成命令**：
-   - 返回 JSON 格式：`{{"commands": [...], "explanation": "..."}}`
-   - 提供清晰的说明
-   - 确保命令安全可靠
+3. **Generate commands**:
+   - Return JSON format: `{{"commands": [...], "explanation": "..."}}`
+   - Provide clear explanations
+   - Ensure commands are safe and reliable
 
 ## Examples
 
-**用户输入**：[示例输入 1]
+**User input**: [Example input 1]
 
-**AI 输出**：
+**AI output**:
 ```json
 {{
   "commands": [
     "command1",
     "command2"
   ],
-  "explanation": "命令说明"
+  "explanation": "Command explanation"
 }}
 ```
 
-**用户输入**：[示例输入 2]
+**User input**: [Example input 2]
 
-**AI 输出**：
+**AI output**:
 ```json
 {{
   "commands": [
     "command3"
   ],
-  "explanation": "命令说明"
+  "explanation": "Command explanation"
 }}
 ```
 
 ## Safety Rules (CLIS Extension)
-- Allow: [允许的操作类型]
-- Forbid: [禁止的操作类型]
-- Require confirmation: [需要确认的操作类型]
+- Allow: [Allowed operation types]
+- Forbid: [Forbidden operation types]
+- Require confirmation: [Operations requiring confirmation]
 
 ## Platform Compatibility (CLIS Extension)
-- windows: [Windows 平台说明]
-- macos: [macOS 平台说明]
-- linux: [Linux 平台说明]
+- windows: [Windows platform instructions]
+- macos: [macOS platform instructions]
+- linux: [Linux platform instructions]
 
 ## Dry-Run Mode (CLIS Extension)
 false
@@ -1725,59 +1725,59 @@ Generate a complete skill file in Markdown format based on the user's descriptio
 # Skill Name: [Descriptive Name]
 
 ## Description
-[Brief description in Chinese]
+[Brief description in English]
 
 ## Instructions
-你是一个 [skill type] 助手。根据用户需求生成合适的命令。
+You are a [skill type] assistant. Generate appropriate commands based on user requirements.
 
-1. **分析用户需求**：
-   - [需求类型 1]：使用 [命令/工具]
-   - [需求类型 2]：使用 [命令/工具]
-   - [需求类型 3]：使用 [命令/工具]
+1. **Analyze user requirements**:
+   - [Requirement type 1]: Use [command/tool]
+   - [Requirement type 2]: Use [command/tool]
+   - [Requirement type 3]: Use [command/tool]
 
-2. **平台适配**：
-   - macOS: [macOS 特定说明]
-   - Linux: [Linux 特定说明]
-   - Windows: [Windows 特定说明]
+2. **Platform adaptation**:
+   - macOS: [macOS specific instructions]
+   - Linux: [Linux specific instructions]
+   - Windows: [Windows specific instructions]
 
-3. **生成命令**：
-   - 返回 JSON 格式：`{"commands": [...], "explanation": "..."}`
-   - 提供清晰的说明
-   - 确保命令安全可靠
+3. **Generate commands**:
+   - Return JSON format: `{{"commands": [...], "explanation": "..."}}`
+   - Provide clear explanations
+   - Ensure commands are safe and reliable
 
 ## Examples
 
-**用户输入**：[realistic example input]
+**User input**: [realistic example input]
 
-**AI 输出**：
+**AI output**:
 ```json
-{
+{{
   "commands": [
     "command1",
     "command2"
   ],
-  "explanation": "命令说明"
-}
+  "explanation": "Command explanation"
+}}
 ```
 
 [Add 2-3 more examples]
 
 ## Safety Rules (CLIS Extension)
-- Allow: [允许的操作类型]
-- Forbid: [禁止的危险操作]
-- Require confirmation: [需要确认的操作]
+- Allow: [Allowed operation types]
+- Forbid: [Forbidden dangerous operations]
+- Require confirmation: [Operations requiring confirmation]
 
 ## Platform Compatibility (CLIS Extension)
-- windows: [Windows 平台特定说明]
-- macos: [macOS 平台特定说明]
-- linux: [Linux 平台特定说明]
+- windows: [Windows platform specific instructions]
+- macos: [macOS platform specific instructions]
+- linux: [Linux platform specific instructions]
 
 ## Dry-Run Mode (CLIS Extension)
 [true/false - true if commands should be tested without execution first]
 
 IMPORTANT:
 1. Generate complete, production-ready content
-2. Use Chinese for descriptions and explanations
+2. Use English for descriptions and explanations
 3. Provide realistic, practical examples
 4. Include proper safety rules
 5. Consider cross-platform compatibility

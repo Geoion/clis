@@ -1,35 +1,30 @@
 # =============================================================================
-# CLIS LLM Configuration | CLIS 大语言模型配置
+# CLIS LLM Configuration
 # =============================================================================
 # This file configures which LLM provider and model to use.
-# 本文件配置使用哪个 LLM 提供商和模型。
 # =============================================================================
 
-# LLM Provider | LLM 提供商
+# LLM Provider
 # Supported providers: openai, anthropic, deepseek, qwen, ollama
-# 支持的提供商：openai、anthropic、deepseek、qwen、ollama
 provider: deepseek
 
-# API Configuration | API 配置
+# API Configuration
 api:
-  # API Key | API 密钥
+  # API Key
   # Use environment variable for security (recommended)
-  # 使用环境变量以确保安全（推荐）
   # Set in your shell: export DEEPSEEK_API_KEY="your-key-here"
-  # 在 Shell 中设置：export DEEPSEEK_API_KEY="your-key-here"
   key: ${DEEPSEEK_API_KEY}
   
-  # API Base URL | API 基础 URL
+  # API Base URL
   # Change this if using a proxy or custom endpoint
-  # 如果使用代理或自定义端点，请更改此项
   base_url: https://api.deepseek.com/v1
   
-  # Request timeout in seconds | 请求超时时间（秒）
+  # Request timeout in seconds
   timeout: 30
 
-# Model Configuration | 模型配置
+# Model Configuration
 model:
-  # Model name | 模型名称
+  # Model name
   # For DeepSeek: deepseek-chat, deepseek-coder
   # For OpenAI: gpt-4, gpt-3.5-turbo
   # For Anthropic: claude-3-opus, claude-3-sonnet
@@ -37,23 +32,19 @@ model:
   # For Ollama: llama3, codellama, mistral, etc.
   name: deepseek-chat
   
-  # Temperature | 温度参数
+  # Temperature
   # Controls randomness: 0.0 = deterministic, 1.0 = creative
-  # 控制随机性：0.0 = 确定性，1.0 = 创造性
   temperature: 0.1
   
-  # Max tokens | 最大 Token 数
+  # Max tokens
   # Maximum tokens in the response
-  # 响应中的最大 Token 数
   max_tokens: 2000
   
-  # Context Window Configuration | 上下文窗口配置
+  # Context Window Configuration
   # Configure how large files are handled based on model's context window
-  # 根据模型的上下文窗口配置大文件处理方式
   context:
-    # Context window size in tokens | 上下文窗口大小（token数）
+    # Context window size in tokens
     # Set based on your model:
-    # 根据使用的模型设置：
     #
     # DeepSeek (API):
     #   - deepseek-chat: 64000
@@ -75,56 +66,49 @@ model:
     #
     window_size: 64000
     
-    # Enable automatic file chunking | 启用自动文件分块
+    # Enable automatic file chunking
     # When true, large files are automatically split into chunks
-    # 设为 true 时，大文件会自动拆分成多个块
     auto_chunk: true
     
-    # Manual chunk threshold in tokens | 手动设置分块阈值（token数）
+    # Manual chunk threshold in tokens
     # 0 = auto (calculated from window_size)
-    # 0 = 自动（根据 window_size 计算）
     # Set a specific value to override auto calculation
-    # 设置具体值以覆盖自动计算
     chunk_threshold: 0
     
-    # Overlap between chunks in lines | 分块重叠行数
+    # Overlap between chunks in lines
     # Helps maintain context between chunks
-    # 有助于保持分块之间的上下文连贯性
     chunk_overlap: 200
     
-    # Reserved tokens | 预留 token 数
+    # Reserved tokens
     # Tokens reserved for system prompt and model response
-    # 为系统提示和模型响应预留的 token 数
     reserved_tokens: 4000
 
-# Retry Configuration | 重试配置
+# Retry Configuration
 retry:
-  # Enable automatic retry on failure | 失败时自动重试
+  # Enable automatic retry on failure
   enabled: true
   
-  # Maximum retry attempts | 最大重试次数
+  # Maximum retry attempts
   max_attempts: 3
   
-  # Delay between retries in seconds | 重试间隔（秒）
+  # Delay between retries in seconds
   delay: 1
 
-# Cost Tracking | 成本跟踪
+# Cost Tracking
 cost:
-  # Enable cost tracking | 启用成本跟踪
+  # Enable cost tracking
   # Track API usage and estimated costs
-  # 跟踪 API 使用情况和预估成本
   enabled: true
   
-  # Alert threshold in CNY | 告警阈值（人民币）
+  # Alert threshold in CNY
   # Warn when daily cost exceeds this amount
-  # 当每日成本超过此金额时发出警告
   daily_threshold: 10.0
 
 # ============================================================================
-# Provider-Specific Examples | 不同提供商的配置示例
+# Provider-Specific Examples
 # ============================================================================
 
-# --- Qwen Example | 通义千问示例 ---
+# --- Qwen Example
 # provider: qwen
 # api:
 #   key: ${QWEN_API_KEY}
@@ -135,20 +119,16 @@ cost:
 #   context:
 #     window_size: 32000  # qwen-plus
 
-# --- Ollama (Local) Example | Ollama（本地）示例 ---
+# --- Ollama (Local) Example
 # provider: ollama
 # api:
 #   base_url: http://localhost:11434
 #   # No API key needed for local Ollama
-#   # 本地 Ollama 不需要 API 密钥
 # model:
 #   name: llama3
 #   # Supported models: llama3, codellama, mistral, qwen2, etc.
-#   # 支持的模型：llama3、codellama、mistral、qwen2 等
 #   # Run 'ollama list' to see available models
-#   # 运行 'ollama list' 查看可用模型
 #   # Check context size: ollama show <model> --modelfile
-#   # 查看上下文大小：ollama show <model> --modelfile
 #   temperature: 0.1
 #   context:
 #     window_size: 8192  # llama3 default, adjust for your model

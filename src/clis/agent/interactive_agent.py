@@ -248,20 +248,20 @@ OR when complete:
                 params = action.get("params", {})
                 
                 # Check for problematic duplicate tool calls
-                # Allow: git_status, git_log (查询类工具可以重复)
-                # Detect: 连续3次调用相同的工具且参数相同
+                # Allow: git_status, git_log (query tools can be repeated)
+                # Detect: 3 consecutive calls to the same tool with same parameters
                 call_signature = f"{tool_name}({params})"
                 
-                # 只检查最近的连续调用
+                # Only check recent consecutive calls
                 recent_same_calls = []
                 for call in reversed(self.tool_call_history[-3:]):
                     call_sig = f"{call['tool']}({call['params']})"
                     if call_sig == call_signature:
                         recent_same_calls.append(call)
                     else:
-                        break  # 遇到不同的调用就停止
+                        break  # Stop when encountering a different call
                 
-                # 如果连续3次都是相同调用,说明陷入循环
+                # If 3 consecutive calls are the same, it indicates a loop
                 if len(recent_same_calls) >= 2:
                     observation = f"⚠️ LOOP DETECTED: You called {tool_name} {len(recent_same_calls)+1} times in a row! CHANGE YOUR APPROACH!"
                     
@@ -432,10 +432,10 @@ What's your next action?"""
     
     def _get_few_shot_examples(self) -> str:
         """
-        生成 Few-shot Learning 示例来教会 LLM 正确的执行模式.
+        Generate Few-shot Learning examples to teach the LLM the correct execution pattern.
         
         Returns:
-            包含多个示例的字符串
+            String containing multiple examples
         """
         return """
 ═══════════════════════════════════════════════════════════════
@@ -597,13 +597,13 @@ Iteration 4: Done
     
     def _get_phase_hint_simple(self, iteration: int) -> str:
         """
-        根据迭代次数给出简洁的阶段提示.
+        Provide concise phase hints based on iteration count.
         
         Args:
-            iteration: 当前迭代次数(从0开始)
+            iteration: Current iteration number (starting from 0)
             
         Returns:
-            阶段提示
+            Phase hint string
         """
         if iteration == 0:
             return "🟢 Phase: Initial Analysis - Understand the request and plan your approach"
