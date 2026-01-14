@@ -79,7 +79,7 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
             ListFilesTool, ReadFileTool, ExecuteCommandTool, GitStatusTool, DockerPsTool,
             DeleteFileTool, EditFileTool, GrepTool, ReadLintsTool, SearchFilesTool, FileTreeTool, WriteFileTool, GetFileInfoTool,
             GitAddTool, GitBranchTool, GitCheckoutTool, GitCommitTool, GitDiffTool, GitLogTool, GitPullTool, GitPushTool,
-            DockerLogsTool, DockerInspectTool, DockerStatsTool,
+            DockerLogsTool, DockerInspectTool, DockerStatsTool, DockerImagesTool, DockerRmiTool,
             SystemInfoTool, CheckCommandTool, GetEnvTool, ListProcessesTool, RunTerminalCmdTool,
             HttpRequestTool, CheckPortTool
         )
@@ -113,6 +113,8 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                 'docker_logs': DockerLogsTool(),
                 'docker_inspect': DockerInspectTool(),
                 'docker_stats': DockerStatsTool(),
+                'docker_images': DockerImagesTool(),
+                'docker_rmi': DockerRmiTool(),
                 'system_info': SystemInfoTool(),
                 'check_command': CheckCommandTool(),
                 'get_env': GetEnvTool(),
@@ -144,7 +146,7 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                 ListFilesTool(), ReadFileTool(), ExecuteCommandTool(), GitStatusTool(), DockerPsTool(),
                 DeleteFileTool(), EditFileTool(), GrepTool(), ReadLintsTool(), SearchFilesTool(), FileTreeTool(), WriteFileTool(), GetFileInfoTool(),
                 GitAddTool(), GitBranchTool(), GitCheckoutTool(), GitCommitTool(), GitDiffTool(), GitLogTool(), GitPullTool(), GitPushTool(),
-                DockerLogsTool(), DockerInspectTool(), DockerStatsTool(),
+                DockerLogsTool(), DockerInspectTool(), DockerStatsTool(), DockerImagesTool(), DockerRmiTool(),
                 SystemInfoTool(), CheckCommandTool(), GetEnvTool(), ListProcessesTool(), RunTerminalCmdTool(),
                 HttpRequestTool(), CheckPortTool()
             ]
@@ -223,8 +225,46 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                         # Optionally show a nice panel with the reasoning
                         if thinking_buffer.strip():
                             from rich.panel import Panel
+                            from rich.markdown import Markdown
+                            import re
+                            
+                            # Format the reasoning buffer for better display
+                            formatted_reasoning = thinking_buffer.strip()
+                            
+                            # Try to extract and format JSON action blocks
+                            action_match = re.search(r'```action\s*\n(\{.*?\})\s*\n```', formatted_reasoning, re.DOTALL)
+                            if action_match:
+                                import json
+                                try:
+                                    import builtins
+                                    action_json = json.loads(action_match.group(1))
+                                    # Convert JSON to readable format
+                                    action_md = "\n📋 Action:\n"
+                                    for key, value in action_json.items():
+                                        if isinstance(value, str):
+                                            # For long strings, add line breaks
+                                            if len(value) > 80:
+                                                action_md += f"- {key}:\n  {value}\n"
+                                            else:
+                                                action_md += f"- {key}: {value}\n"
+                                        elif isinstance(value, (builtins.list, builtins.tuple)):
+                                            # Handle lists and tuples using builtins
+                                            action_md += f"- {key}: {', '.join([str(v) for v in value])}\n"
+                                        elif hasattr(value, 'items'):
+                                            # Handle dict-like objects
+                                            action_md += f"- {key}:\n"
+                                            for k, v in value.items():
+                                                action_md += f"  - {k}: {v}\n"
+                                        else:
+                                            action_md += f"- {key}: {value}\n"
+                                    
+                                    # Replace original JSON with formatted markdown
+                                    formatted_reasoning = formatted_reasoning[:action_match.start()] + action_md + formatted_reasoning[action_match.end():]
+                                except (json.JSONDecodeError, KeyError, AttributeError):
+                                    pass  # Keep original format if parsing fails
+                            
                             console.print(Panel(
-                                thinking_buffer.strip(),
+                                formatted_reasoning,
                                 title="[dim]💡 Complete Reasoning[/dim]",
                                 border_style="dim cyan",
                                 padding=(0, 1),
@@ -258,28 +298,28 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                         approved = response in ['y', 'yes']
                         
                         if not approved:
-                            # Record rejection and continue
+                            # Record rejection and display
                             result = agent.execute_tool(tool_name, params, approved=False)
                             console.print(f"   [yellow]⚠️  {result['content']}[/yellow]")
-                            continue
-                        
-                        # Execute after approval
-                        result = agent.execute_tool(tool_name, params, approved=True)
-                        if result['success']:
-                            result_preview = result['content'][:200]
-                            if len(result['content']) > 200:
-                                result_preview += "..."
-                            console.print(f"   [green]✓[/green] [dim]{result_preview}[/dim]")
+                            # Agent will continue with next iteration automatically
                         else:
-                            error_msg = result.get('content', 'Unknown error')
-                            console.print(f"   [red]✗ Failed:[/red] [red]{error_msg}[/red]")
+                            # Execute after approval
+                            result = agent.execute_tool(tool_name, params, approved=True)
+                            if result['success']:
+                                result_preview = result['content'][:200]
+                                if len(result['content']) > 200:
+                                    result_preview += "..."
+                                console.print(f"   [green]✓[/green] [dim]{result_preview}[/dim]")
+                            else:
+                                error_msg = result.get('content', 'Unknown error')
+                                console.print(f"   [red]✗ Failed:[/red] [red]{error_msg}[/red]")
                 
                 elif step_type == "tool_result":
-                    # Fix: Don't rely solely on success flag, check if there's actual output
+                    # Display result based on success flag
                     content = step.get('content', '')
-                    has_content = bool(content and content.strip())
+                    success = step.get('success', False)
                     
-                    if step.get('success') or has_content:
+                    if success:
                         result_preview = content[:200] if content else "Success"
                         if len(content) > 200:
                             result_preview += "..."
