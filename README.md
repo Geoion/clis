@@ -19,7 +19,8 @@
 **CLIS** (Command Line Intelligence System) brings Claude Code's intelligent tool calling capabilities to open-source LLMs:
 
 - ✅ **96% cost savings** - < $0.003/query (DeepSeek) vs $20/month (Claude Code)
-- ✅ **19 tools** - Filesystem, Git, Docker, System, Network
+- ✅ **31 tools** - Filesystem, Git, Docker, System, Network
+- ✅ **Open Skills System** - Customizable domain knowledge (vs Claude's closed skills)
 - ✅ **Offline mode** - Ollama support for complete privacy
 - ✅ **Full control** - User confirmation for all commands
 - ✅ **Cross-platform** - Windows/macOS/Linux
@@ -64,13 +65,15 @@ clis run "show container logs"
 
 ## 💡 Usage
 
-### Git Workflow
+### Git Workflow (Complete)
 
 ```bash
 clis run "show git status"
 clis run "show my changes"
 clis run "commit modified files by directory"
 clis run "push to remote"
+clis run "create a new feature branch"
+clis run "pull latest changes from main"
 ```
 
 ### Docker Management
@@ -82,21 +85,23 @@ clis run "restart web container"
 clis run "show container stats"
 ```
 
-### Code Search
+### Code Editing & Analysis
 
 ```bash
 clis run "find all TODOs in Python files"
-clis run "where is execute_query defined?"
-clis run "find files containing ModuleNotFoundError"
+clis run "replace print with logger in main.py"
+clis run "check linter errors in src/"
+clis run "show me functions matching pattern 'async def.*'"
 ```
 
-### System Diagnostics
+### System & Background Tasks
 
 ```bash
 clis run "show system info"
 clis run "is port 8000 open?"
 clis run "show top CPU processes"
-clis run "is docker installed?"
+clis run "start dev server in background"
+clis run "list background processes"
 ```
 
 ---
@@ -134,18 +139,28 @@ clis --verbose run "your query"
 
 ---
 
-## 🛠️ Available Tools (19)
+## 🛠️ Available Tools (31)
 
-### Filesystem (6)
+### Filesystem (9)
 - `list_files` - List directory contents
-- `read_file` - Read file content
-- `search_files` - Search text in files (grep/ripgrep)
-- `file_tree` - Display directory tree
+- `read_file` - Read file content (with intelligent chunking)
 - `write_file` - Write to files
+- `edit_file` - 🆕 Precise file editing with diff preview and dry-run
+- `delete_file` - Delete files
+- `search_files` - Search text in files
+- `grep` - 🆕 Enhanced code search with regex support
+- `read_lints` - 🆕 Read linter errors (flake8, pylint, ruff, eslint)
+- `file_tree` - Display directory tree
 - `get_file_info` - File metadata
 
-### Git (3)
+### Git (9) - Complete Workflow
 - `git_status` - Repository status
+- `git_add` - Stage files
+- `git_commit` - Commit changes
+- `git_push` - 🆕 Push to remote (with upstream support)
+- `git_pull` - 🆕 Pull from remote (with rebase support)
+- `git_branch` - 🆕 Branch management (list/create/delete/rename)
+- `git_checkout` - 🆕 Switch branches or restore files
 - `git_diff` - View changes
 - `git_log` - Commit history
 
@@ -155,15 +170,20 @@ clis --verbose run "your query"
 - `docker_inspect` - Container details
 - `docker_stats` - Resource usage
 
-### System (4)
+### System (5)
 - `system_info` - OS, CPU, memory
 - `check_command` - Verify command availability
 - `get_env` - Environment variables
 - `list_processes` - Running processes
+- `run_terminal_cmd` - 🆕 Execute commands (with background support)
 
 ### Network (2)
 - `http_request` - HTTP requests
 - `check_port` - Port availability
+
+### General (2)
+- `execute_command` - Execute shell commands
+- `git_status` - Quick git status (built-in)
 
 ---
 
@@ -205,6 +225,28 @@ model:
     chunk_overlap: 200      # Overlap lines between chunks
     reserved_tokens: 4000   # Reserved for system prompt
 ```
+
+## 🌟 Key Features
+
+### Open Skills System
+Unlike Claude Code's closed skills, CLIS uses **open, customizable Skills**:
+- 📝 Markdown format - Easy to read and edit
+- 🔧 User-definable - Create skills for any domain
+- 🤝 Community-driven - Share and collaborate
+- 🎯 Fine-grained control - Safety rules, platform compatibility
+
+See `skills/` directory for examples (Docker, Git, etc.)
+
+### Enhanced Code Editing
+- **edit_file**: Precise editing with diff preview and dry-run mode
+- **grep**: Regex search with context lines
+- **read_lints**: Automatic linter integration
+
+### Complete Git Workflow
+Full git operations from status to push, including branch management
+
+### Background Process Support
+Run long-running tasks (dev servers, builds) in background with process management
 
 ## 🛡️ Safety
 
