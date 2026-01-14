@@ -20,6 +20,9 @@ from clis.tools.builtin import (
 # Filesystem tools
 from clis.tools.filesystem import (
     DeleteFileTool,
+    EditFileTool,
+    GrepTool,
+    ReadLintsTool,
     SearchFilesTool,
     FileTreeTool,
     WriteFileTool,
@@ -37,9 +40,13 @@ from clis.tools.filesystem.file_chunker import (
 # Git tools
 from clis.tools.git import (
     GitAddTool,
+    GitBranchTool,
+    GitCheckoutTool,
     GitCommitTool,
     GitDiffTool,
     GitLogTool,
+    GitPullTool,
+    GitPushTool,
 )
 
 # Docker tools
@@ -55,6 +62,7 @@ from clis.tools.system import (
     CheckCommandTool,
     GetEnvTool,
     ListProcessesTool,
+    RunTerminalCmdTool,
 )
 
 # Network tools
@@ -77,6 +85,9 @@ __all__ = [
     "DockerPsTool",
     # Filesystem
     "DeleteFileTool",
+    "EditFileTool",
+    "GrepTool",
+    "ReadLintsTool",
     "SearchFilesTool",
     "FileTreeTool",
     "WriteFileTool",
@@ -88,9 +99,13 @@ __all__ = [
     "get_model_preset",
     # Git
     "GitAddTool",
+    "GitBranchTool",
+    "GitCheckoutTool",
     "GitCommitTool",
     "GitDiffTool",
     "GitLogTool",
+    "GitPullTool",
+    "GitPushTool",
     # Docker
     "DockerLogsTool",
     "DockerInspectTool",
@@ -100,6 +115,7 @@ __all__ = [
     "CheckCommandTool",
     "GetEnvTool",
     "ListProcessesTool",
+    "RunTerminalCmdTool",
     # Network
     "HttpRequestTool",
     "CheckPortTool",
