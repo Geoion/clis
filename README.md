@@ -250,10 +250,33 @@ Run long-running tasks (dev servers, builds) in background with process manageme
 
 ## 🛡️ Safety
 
-Three-layer protection:
-1. **Blacklist** - Blocks dangerous patterns (rm -rf /, dd, mkfs, etc.)
-2. **Risk Scoring** - 0-100 automatic scoring
-3. **User Confirmation** - All commands require approval
+Three-layer protection system ensures safe command execution:
+
+1. **Blacklist Protection** - Blocks dangerous patterns
+   - Destructive commands (`rm -rf /`, `dd`, `mkfs`)
+   - System modifications without confirmation
+   - Fork bombs and malicious patterns
+
+2. **Risk Scoring (0-100)** - Automatic risk assessment
+   - **Low (0-30)**: Read-only operations - Auto-execute
+   - **Medium (31-60)**: Write operations - Require confirmation
+   - **High (61-90)**: Destructive operations - Require confirmation
+   - **Critical (91-100)**: System-level operations - Blocked
+   
+   Examples:
+   - `ls -la` → 10 (low) → Auto-execute
+   - `git add .` → 50 (medium) → Confirm
+   - `git push` → 70 (high) → Confirm
+   - `git push --force` → 95 (critical) → Blocked
+   - `rm -rf dir` → 85 (high) → Confirm
+   - `sudo apt install` → 95 (critical) → Blocked
+
+3. **User Confirmation** - Interactive approval for risky operations
+   - All high-risk tools require explicit approval
+   - Risk score and level displayed for transparency
+   - File modifications, git operations, deletions always confirmed
+
+All tools have explicit risk scores and confirmation requirements. Configure behavior in `~/.clis/config/safety.yaml`.
 
 ---
 
