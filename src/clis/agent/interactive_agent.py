@@ -8,10 +8,15 @@ This agent executes tasks step-by-step, thinking and adapting based on results.
 
 import json
 import re
+from datetime import datetime
 from typing import Any, Dict, Optional, Generator
 
 from clis.agent.agent import Agent
 from clis.agent.context_manager import ContextManager, ObservationType
+from clis.agent.working_memory import WorkingMemory
+from clis.agent.episodic_memory import EpisodicMemory
+from clis.agent.state_machine import TaskStateMachine
+from clis.agent.memory_manager import MemoryManager
 from clis.config import ConfigManager
 from clis.safety.risk_scorer import RiskScorer
 from clis.tools.base import Tool, ToolExecutor
@@ -79,6 +84,22 @@ class InteractiveAgent:
         except Exception as e:
             logger.warning(f"Failed to load safety config: {e}")
             self.safety_config = None
+        
+        # ============ 新增: 混合记忆系统 ============
+        # 工作记忆 (内存)
+        self.working_memory = WorkingMemory()
+        
+        # 情景记忆 (任务文档) - 在任务开始时创建
+        self.episodic_memory: Optional[EpisodicMemory] = None
+        
+        # 状态机
+        self.state_machine = TaskStateMachine(max_iterations=self.max_iterations)
+        
+        # 记忆管理器
+        self.memory_manager = MemoryManager()
+        
+        # 当前任务ID
+        self.current_task_id: Optional[str] = None
     
     def execute(self, query: str, stream_thinking: bool = False) -> Generator[Dict[str, Any], None, None]:
         """
@@ -98,8 +119,23 @@ class InteractiveAgent:
             "needs_confirmation": bool (for commands)
         }
         """
+        # ============ 初始化记忆系统 ============
+        # 创建任务记忆
+        self.current_task_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+        task_id, task_file = self.memory_manager.create_task_memory(query, self.current_task_id)
+        self.episodic_memory = EpisodicMemory(task_id)
+        self.episodic_memory.load_or_create(query)
+        
+        # 清空工作记忆
+        self.working_memory.clear()
+        
+        logger.info(f"Task memory created: {task_file}")
+        
         platform = get_platform()
         shell = get_shell()
+        
+        # 用于跟踪任务是否成功
+        task_success = True
         
         # Build base system prompt template (will be updated each iteration)
         def build_system_prompt(iteration: int) -> str:
@@ -212,6 +248,27 @@ OR when complete:
             # Yield iteration start (always, for counting)
             yield {"type": "iteration_start", "iteration": iteration + 1}
             
+            # ============ 状态机检测 ============
+            state_advice = self.state_machine.detect_state(iteration, self.working_memory)
+            
+            # 如果是紧急状态(循环或超时),强制提示
+            if state_advice.is_urgent:
+                logger.warning(f"Urgent state detected: {state_advice.message}")
+                yield {
+                    "type": "warning",
+                    "content": f"{state_advice.message}\n建议: {'; '.join(state_advice.suggested_actions)}"
+                }
+            
+            # 更新进度
+            self.working_memory.update_phase(
+                state_advice.state.value,
+                f"{iteration + 1}/{self.max_iterations}"
+            )
+            self.episodic_memory.update_progress(
+                state_advice.state.value,
+                f"{iteration + 1}/{self.max_iterations}"
+            )
+            
             # Build system prompt with CURRENT tool history (updates each iteration)
             system_prompt = build_system_prompt(iteration)
             
@@ -251,9 +308,27 @@ OR when complete:
             
             # Handle completion
             if action_type == "done":
+                # ============ 完成任务记忆 ============
+                summary = action.get("summary", "Task completed")
+                self.episodic_memory.update_step("任务完成", "done")
+                self.episodic_memory.update_next_action(f"✅ 已完成: {summary}")
+                
+                # 完成任务
+                self.memory_manager.complete_task(
+                    self.current_task_id,
+                    success=task_success,
+                    extract_knowledge=True
+                )
+                
+                # 显示统计
+                stats = self.working_memory.get_stats()
+                logger.info(f"Task completed. Stats: {stats}")
+                
                 yield {
                     "type": "complete",
-                    "content": action.get("summary", "Task completed")
+                    "content": summary,
+                    "stats": stats,
+                    "task_file": str(self.episodic_memory.get_file_path())
                 }
                 return  # Exit cleanly
             
@@ -262,6 +337,26 @@ OR when complete:
                 # Tool call - execute immediately
                 tool_name = action.get("tool")
                 params = action.get("params", {})
+                
+                # ============ 更新工作记忆 ============
+                self.working_memory.increment_tool(tool_name)
+                
+                # 特殊处理: 文件读取
+                if tool_name == 'read_file':
+                    file_path = params.get('path', '')
+                    is_new = self.working_memory.add_file_read(file_path)
+                    
+                    if not is_new:
+                        # 重复读取!强制警告
+                        warning_msg = f"⚠️ 警告: 文件 '{file_path}' 已经读过!可能陷入循环。"
+                        yield {
+                            "type": "warning",
+                            "content": warning_msg
+                        }
+                        self.episodic_memory.add_finding(
+                            f"重复读取文件: {file_path}",
+                            category="warning"
+                        )
                 
                 # Check for problematic duplicate tool calls
                 # Whitelist: Read-only tools that can be safely repeated
@@ -357,11 +452,27 @@ OR when complete:
                         "success": result.success
                     })
                     
+                    # ============ 更新记忆系统 ============
+                    # 记录文件写入
+                    if tool_name in ('write_file', 'edit_file'):
+                        file_path = params.get('path', '')
+                        self.working_memory.add_file_written(file_path)
+                        self.episodic_memory.update_step(f"写入文件: {file_path}", "done")
+                    
+                    # 记录关键发现
+                    if result.success and tool_name in ('read_file', 'search_files', 'file_tree'):
+                        preview = result.output[:100] if result.output else ""
+                        self.episodic_memory.add_finding(
+                            f"从 {tool_name}({params}) 获取: {preview}...",
+                            category="data"
+                        )
+                    
                     # Prepare content for return (use error message if failed)
                     if result.success:
                         content = result.output[:500] if result.output else "Success"
                     else:
                         content = result.error if result.error else (result.output[:500] if result.output else "Unknown error")
+                        task_success = False  # 标记任务失败
                     
                     # Add to context manager
                     obs_type = ObservationType.ERROR if not result.success else ObservationType.TOOL_RESULT
@@ -397,6 +508,7 @@ OR when complete:
                         obs_type=ObservationType.ERROR,
                         is_critical=True
                     )
+                    task_success = False
                     yield {
                         "type": "error",
                         "content": error_msg
@@ -418,6 +530,11 @@ OR when complete:
                 
                 # Execute command (low risk, auto-approved)
                 result = self.tool_executor.execute("execute_command", {"command": command})
+                
+                # ============ 更新工作记忆 ============
+                self.working_memory.add_command(command, result.success)
+                if not result.success:
+                    task_success = False
                 
                 # Add to context manager
                 obs_type = ObservationType.ERROR if not result.success else ObservationType.COMMAND_RESULT
@@ -445,35 +562,57 @@ OR when complete:
             # Build context for next iteration using context manager
             context_summary = self.context_manager.get_context()
             stats = self.context_manager.get_summary()
-            phase_hint = self._get_phase_hint_simple(iteration + 1)
+            
+            # ============ 注入记忆系统到 prompt ============
+            state_advice_text = self.state_machine.format_advice(state_advice)
+            working_memory_text = self.working_memory.to_prompt()
+            episodic_memory_text = self.episodic_memory.inject_to_prompt(include_log=False)
             
             current_context = f"""User request: {query}
 
-📊 PROGRESS: Iteration {iteration + 1}/{self.max_iterations}
-📊 CURRENT PHASE: {phase_hint}
+{state_advice_text}
+
+{working_memory_text}
+
+{episodic_memory_text}
+
+╭──────────────────────────────────────────────────────────────╮
+│                  📜 最近观察 (OBSERVATIONS)                   │
+╰──────────────────────────────────────────────────────────────╯
 
 Previous observations ({stats['total']} total, {stats['critical']} critical):
 {context_summary}
 
 ⚠️ IMPORTANT:
-- If you see "DUPLICATE" in observations, you're repeating yourself!
-- DO NOT call the same tool with same params again
+- 检查工作记忆中的"已读文件"列表,不要重复读取!
+- 查看状态机建议,遵循当前阶段的指导
+- 参考任务记忆中的已完成步骤和关键发现
 - If task is COMPLETE, respond with {{"type": "done", "summary": "..."}}
 - Otherwise, take a DIFFERENT action to make progress
 
 What's your next action?"""
         
         # Max iterations reached
+        # ============ 标记任务失败 ============
+        self.episodic_memory.update_step("任务未完成(达到迭代上限)", "done")
+        self.memory_manager.complete_task(
+            self.current_task_id,
+            success=False,
+            extract_knowledge=False
+        )
+        
         if self.auto_mode:
             yield {
                 "type": "error",
-                "content": f"Reached safety limit ({self.max_iterations} iterations). Agent did not complete the task."
+                "content": f"Reached safety limit ({self.max_iterations} iterations). Agent did not complete the task.",
+                "task_file": str(self.episodic_memory.get_file_path())
             }
         else:
             yield {
-            "type": "error",
-            "content": f"Reached maximum iterations ({self.max_iterations})"
-        }
+                "type": "error",
+                "content": f"Reached maximum iterations ({self.max_iterations})",
+                "task_file": str(self.episodic_memory.get_file_path())
+            }
     
     def _get_few_shot_examples(self) -> str:
         """
@@ -678,6 +817,12 @@ Iteration 4: Done
                 obs_type=ObservationType.REJECTION,
                 is_critical=True
             )
+            # 记录到任务文档
+            if self.episodic_memory:
+                self.episodic_memory.add_finding(
+                    f"用户拒绝工具: {tool_name}({params})",
+                    category="rejection"
+                )
             return {
                 "type": "tool_result",
                 "content": "Tool execution rejected by user",
@@ -685,6 +830,23 @@ Iteration 4: Done
             }
         
         result = self.tool_executor.execute(tool_name, params)
+        
+        # ============ 更新工作记忆 ============
+        if self.working_memory:
+            self.working_memory.increment_tool(tool_name)
+            
+            if tool_name == 'read_file':
+                file_path = params.get('path', '')
+                self.working_memory.add_file_read(file_path)
+            elif tool_name in ('write_file', 'edit_file'):
+                file_path = params.get('path', '')
+                self.working_memory.add_file_written(file_path)
+        
+        # 更新任务文档
+        if self.episodic_memory and result.success:
+            if tool_name in ('write_file', 'edit_file'):
+                file_path = params.get('path', '')
+                self.episodic_memory.update_step(f"写入文件: {file_path}", "done")
         
         # Prepare content for return (use error message if failed)
         if result.success:
@@ -728,6 +890,12 @@ Iteration 4: Done
         if not approved:
             # Record rejection
             self.context_manager.add_rejection(command, "User rejected command")
+            # 记录到任务文档
+            if self.episodic_memory:
+                self.episodic_memory.add_finding(
+                    f"用户拒绝命令: {command}",
+                    category="rejection"
+                )
             return {
                 "type": "command_result",
                 "content": "Command rejected by user",
@@ -735,6 +903,10 @@ Iteration 4: Done
             }
         
         result = self.tool_executor.execute("execute_command", {"command": command})
+        
+        # ============ 更新工作记忆 ============
+        if self.working_memory:
+            self.working_memory.add_command(command, result.success)
         
         # Add to context manager
         obs_type = ObservationType.ERROR if not result.success else ObservationType.COMMAND_RESULT
