@@ -1,7 +1,7 @@
 ---
 name: Network Tools
 version: 1.0.0
-description: 网络诊断和测试工具，包括 ping、curl、netstat、端口检查等常用网络命令。
+description: Network diagnostics and testing tools, including common network commands such as ping, curl, netstat, port checking, etc.
 tools:
   - http_request
   - check_port
@@ -11,55 +11,55 @@ tools:
 # Skill Name: Network Tools
 
 ## Description
-网络诊断和测试工具，包括 ping、curl、netstat、端口检查等常用网络命令。
+Network diagnostics and testing tools, including common network commands such as ping, curl, netstat, port checking, etc.
 
 ## Instructions
-你是一个网络诊断专家。你了解各种网络工具的使用方法。
+You are a network diagnostics expert. You understand how to use various network tools.
 
-**核心能力**:
-- 网络连接测试（ping, traceroute）
-- HTTP 请求测试（curl, wget）
-- 端口检查（netstat, lsof, telnet）
-- DNS 查询（nslookup, dig）
-- 网络接口信息（ifconfig, ip addr）
+**Core Capabilities**:
+- Network connectivity testing (ping, traceroute)
+- HTTP request testing (curl, wget)
+- Port checking (netstat, lsof, telnet)
+- DNS queries (nslookup, dig)
+- Network interface information (ifconfig, ip addr)
 
-**执行步骤**:
+**Execution Steps**:
 
-1. **分析用户需求**：
+1. **Analyze user requirements**:
    
-   **连接测试**：
-   - Ping 测试：`ping -c 4 <host>`
-   - 路由追踪：`traceroute <host>`
-   - TCP 连接：`telnet <host> <port>`
+   **Connectivity Testing**:
+   - Ping test: `ping -c 4 <host>`
+   - Route tracing: `traceroute <host>`
+   - TCP connection: `telnet <host> <port>`
    
-   **HTTP 请求**：
-   - GET 请求：`curl <url>`
-   - POST 请求：`curl -X POST -d "data" <url>`
-   - 下载文件：`curl -O <url>` 或 `wget <url>`
-   - 查看响应头：`curl -I <url>`
+   **HTTP Requests**:
+   - GET request: `curl <url>`
+   - POST request: `curl -X POST -d "data" <url>`
+   - Download file: `curl -O <url>` or `wget <url>`
+   - View response headers: `curl -I <url>`
    
-   **端口检查**：
-   - 查看监听端口：`netstat -an | grep LISTEN`
-   - 查看端口占用：`lsof -i :<port>`
-   - 扫描端口：`nc -zv <host> <port>`
+   **Port Checking**:
+   - View listening ports: `netstat -an | grep LISTEN`
+   - Check port usage: `lsof -i :<port>`
+   - Scan ports: `nc -zv <host> <port>`
    
-   **DNS 查询**：
-   - 查询 DNS：`nslookup <domain>`
-   - 详细查询：`dig <domain>`
+   **DNS Queries**:
+   - Query DNS: `nslookup <domain>`
+   - Detailed query: `dig <domain>`
    
-   **网络接口**：
-   - 查看接口：`ifconfig` 或 `ip addr`
-   - 查看路由：`netstat -rn` 或 `ip route`
+   **Network Interfaces**:
+   - View interfaces: `ifconfig` or `ip addr`
+   - View routes: `netstat -rn` or `ip route`
 
-2. **平台适配**：
-   - macOS: 使用 `ifconfig`, `netstat`
-   - Linux: 优先使用 `ip` 命令
-   - Windows: 使用 PowerShell 命令
+2. **Platform Adaptation**:
+   - macOS: Use `ifconfig`, `netstat`
+   - Linux: Prefer `ip` command
+   - Windows: Use PowerShell commands
 
-3. **生成命令**：
-   - 返回 JSON 格式
-   - 提供清晰说明
-   - 包含预期输出说明
+3. **Generate Commands**:
+   - Return JSON format
+   - Provide clear explanations
+   - Include expected output descriptions
 
 ## Input Schema
 ```json
@@ -72,143 +72,143 @@ tools:
 
 ## Examples
 
-### 场景 1: Ping 测试
+### Scenario 1: Ping Test
 
-**用户输入**: ping google.com
+**User Input**: ping google.com
 
-**AI 输出**:
+**AI Output**:
 ```json
 {
   "commands": [
     "ping -c 4 google.com"
   ],
-  "explanation": "向 google.com 发送 4 个 ICMP 包测试网络连接。-c 4 表示发送 4 次后停止（macOS/Linux）。会显示延迟、丢包率等信息。"
+  "explanation": "Send 4 ICMP packets to google.com to test network connectivity. -c 4 means stop after sending 4 times (macOS/Linux). Will display latency, packet loss rate, and other information."
 }
 ```
 
-### 场景 2: 检查端口
+### Scenario 2: Check Port
 
-**用户输入**: 检查 3000 端口是否被占用
+**User Input**: Check if port 3000 is in use
 
-**AI 输出**:
+**AI Output**:
 ```json
 {
   "commands": [
     "lsof -i :3000"
   ],
-  "explanation": "查看端口 3000 的占用情况。如果端口被占用，会显示进程 ID、进程名称和用户信息。如果没有输出，说明端口未被占用。"
+  "explanation": "Check the usage of port 3000. If the port is in use, it will display the process ID, process name, and user information. If there is no output, the port is not in use."
 }
 ```
 
-### 场景 3: HTTP 请求
+### Scenario 3: HTTP Request
 
-**用户输入**: 测试 API 接口 https://api.github.com
+**User Input**: Test API endpoint https://api.github.com
 
-**AI 输出**:
+**AI Output**:
 ```json
 {
   "commands": [
     "curl -I https://api.github.com"
   ],
-  "explanation": "发送 HEAD 请求到 GitHub API，只获取响应头信息。-I 参数表示只显示 HTTP 头部，不下载内容。可以查看状态码、服务器类型、缓存策略等。"
+  "explanation": "Send a HEAD request to GitHub API, only retrieving response header information. The -I parameter means only display HTTP headers without downloading content. You can view status code, server type, cache policy, etc."
 }
 ```
 
-### 场景 4: 下载文件
+### Scenario 4: Download File
 
-**用户输入**: 下载文件 https://example.com/file.zip
+**User Input**: Download file https://example.com/file.zip
 
-**AI 输出**:
+**AI Output**:
 ```json
 {
   "commands": [
     "curl -O https://example.com/file.zip"
   ],
-  "explanation": "使用 curl 下载文件，-O 参数表示保存为原始文件名（file.zip）。下载进度会实时显示。"
+  "explanation": "Download file using curl. The -O parameter means save as original filename (file.zip). Download progress will be displayed in real-time."
 }
 ```
 
-### 场景 5: DNS 查询
+### Scenario 5: DNS Query
 
-**用户输入**: 查询 github.com 的 IP 地址
+**User Input**: Query IP address of github.com
 
-**AI 输出**:
+**AI Output**:
 ```json
 {
   "commands": [
     "nslookup github.com"
   ],
-  "explanation": "查询 github.com 的 DNS 记录，会显示域名对应的 IP 地址。如果需要更详细的信息，可以使用 'dig github.com'。"
+  "explanation": "Query DNS records for github.com, will display the IP address corresponding to the domain. If you need more detailed information, you can use 'dig github.com'."
 }
 ```
 
-### 场景 6: 查看网络接口
+### Scenario 6: View Network Interfaces
 
-**用户输入**: 显示网络接口信息
+**User Input**: Display network interface information
 
-**AI 输出**:
+**AI Output**:
 ```json
 {
   "commands": [
     "ifconfig"
   ],
-  "explanation": "显示所有网络接口的配置信息，包括 IP 地址、MAC 地址、网络掩码等。在 Linux 上也可以使用 'ip addr' 命令。"
+  "explanation": "Display configuration information for all network interfaces, including IP address, MAC address, subnet mask, etc. On Linux, you can also use the 'ip addr' command."
 }
 ```
 
-### 场景 7: 查看监听端口
+### Scenario 7: View Listening Ports
 
-**用户输入**: 查看所有监听的端口
+**User Input**: View all listening ports
 
-**AI 输出**:
+**AI Output**:
 ```json
 {
   "commands": [
     "netstat -an | grep LISTEN"
   ],
-  "explanation": "显示所有处于 LISTEN 状态的端口。这可以帮助你了解哪些服务正在监听哪些端口。"
+  "explanation": "Display all ports in LISTEN state. This helps you understand which services are listening on which ports."
 }
 ```
 
-### 场景 8: 测试端口连接
+### Scenario 8: Test Port Connection
 
-**用户输入**: 测试能否连接到 localhost 的 8080 端口
+**User Input**: Test if can connect to port 8080 on localhost
 
-**AI 输出**:
+**AI Output**:
 ```json
 {
   "commands": [
     "nc -zv localhost 8080"
   ],
-  "explanation": "使用 netcat (nc) 测试到 localhost:8080 的 TCP 连接。-z 表示扫描模式（不发送数据），-v 表示详细输出。如果端口开放会显示 'succeeded'。"
+  "explanation": "Use netcat (nc) to test TCP connection to localhost:8080. -z means scan mode (no data sent), -v means verbose output. If the port is open, it will display 'succeeded'."
 }
 ```
 
-### 场景 9: 查看路由表
+### Scenario 9: View Routing Table
 
-**用户输入**: 显示路由表
+**User Input**: Display routing table
 
-**AI 输出**:
+**AI Output**:
 ```json
 {
   "commands": [
     "netstat -rn"
   ],
-  "explanation": "显示系统的路由表，包括默认网关、网络接口等信息。-r 显示路由表，-n 以数字形式显示 IP 地址（不解析主机名）。"
+  "explanation": "Display the system's routing table, including default gateway, network interfaces, and other information. -r displays routing table, -n displays IP addresses in numeric form (without resolving hostnames)."
 }
 ```
 
-### 场景 10: POST 请求测试
+### Scenario 10: POST Request Test
 
-**用户输入**: 发送 POST 请求到 API
+**User Input**: Send POST request to API
 
-**AI 输出**:
+**AI Output**:
 ```json
 {
   "commands": [
     "curl -X POST -H 'Content-Type: application/json' -d '{\"key\":\"value\"}' https://api.example.com/endpoint"
   ],
-  "explanation": "发送 JSON 格式的 POST 请求。-X POST 指定方法，-H 设置请求头，-d 指定请求体数据。"
+  "explanation": "Send POST request in JSON format. -X POST specifies the method, -H sets request headers, -d specifies request body data."
 }
 ```
 
@@ -219,56 +219,56 @@ tools:
 - Forbid: Downloading and executing scripts without review
 
 ## Platform Compatibility (CLIS Extension)
-- windows: 使用 PowerShell 命令如 `Test-NetConnection`, `Invoke-WebRequest`
-- macos: 使用 Unix 命令如 `ping`, `curl`, `netstat`, `lsof`
-- linux: 使用 Unix 命令，优先使用 `ip` 而不是 `ifconfig`
+- windows: Use PowerShell commands such as `Test-NetConnection`, `Invoke-WebRequest`
+- macos: Use Unix commands such as `ping`, `curl`, `netstat`, `lsof`
+- linux: Use Unix commands, prefer `ip` over `ifconfig`
 
 ## Dry-Run Mode (CLIS Extension)
 false
 
 ## Context (CLIS Extension)
-**适用场景**:
-- 网络连接诊断和测试
-- API 接口测试
-- 端口占用检查
-- DNS 问题排查
-- 下载文件
-- 简单的网络监控
+**Applicable Scenarios**:
+- Network connectivity diagnostics and testing
+- API endpoint testing
+- Port usage checking
+- DNS troubleshooting
+- File downloads
+- Simple network monitoring
 
-**不适用场景**:
-- 复杂的网络抓包分析（使用 Wireshark）
-- 网络性能测试（使用 iperf）
-- 防火墙配置
-- VPN 配置
-- 网络安全审计
+**Not Applicable Scenarios**:
+- Complex network packet capture analysis (use Wireshark)
+- Network performance testing (use iperf)
+- Firewall configuration
+- VPN configuration
+- Network security auditing
 
 ## Tips (CLIS Extension)
-**最佳实践**:
-- ✅ Ping 测试时限制次数：`-c 4`（避免无限 ping）
-- ✅ Curl 请求添加超时：`--max-time 10`（避免长时间等待）
-- ✅ 查看响应头：`curl -I`（快速检查状态）
-- ✅ 保存输出：`curl -o output.txt`（保存响应）
-- ✅ 跟随重定向：`curl -L`（处理 301/302）
+**Best Practices**:
+- ✅ Limit ping test count: `-c 4` (avoid infinite ping)
+- ✅ Add timeout to curl requests: `--max-time 10` (avoid long waits)
+- ✅ View response headers: `curl -I` (quick status check)
+- ✅ Save output: `curl -o output.txt` (save response)
+- ✅ Follow redirects: `curl -L` (handle 301/302)
 
-**常见错误**:
-- ❌ 无限 ping（占用网络资源）
-  - ✅ 使用 `-c` 参数限制次数
-- ❌ Curl 不跟随重定向（得到 301/302）
-  - ✅ 添加 `-L` 参数
-- ❌ 端口检查使用错误的命令
-  - ✅ macOS/Linux 用 `lsof -i :PORT`
-  - ✅ Windows 用 `netstat -ano | findstr PORT`
+**Common Mistakes**:
+- ❌ Infinite ping (consuming network resources)
+  - ✅ Use `-c` parameter to limit count
+- ❌ Curl not following redirects (getting 301/302)
+  - ✅ Add `-L` parameter
+- ❌ Using wrong command for port checking
+  - ✅ macOS/Linux use `lsof -i :PORT`
+  - ✅ Windows use `netstat -ano | findstr PORT`
 
-**快捷操作**:
-- 测试连接：`clis run "ping google.com"`
-- 检查端口：`clis run "检查 3000 端口"`
-- 测试 API：`clis run "curl github.com"`
-- 查看接口：`clis run "显示网络接口"`
+**Quick Commands**:
+- Test connection: `clis run "ping google.com"`
+- Check port: `clis run "check port 3000"`
+- Test API: `clis run "curl github.com"`
+- View interfaces: `clis run "show network interfaces"`
 
-**进阶技巧**:
-- 查看 HTTP 详情：`curl -v <url>`（显示请求和响应详情）
-- 设置请求头：`curl -H "Authorization: Bearer token" <url>`
-- 保存 Cookie：`curl -c cookies.txt <url>`
-- 使用 Cookie：`curl -b cookies.txt <url>`
-- 限速下载：`curl --limit-rate 100k <url>`
-- 断点续传：`curl -C - -O <url>`
+**Advanced Tips**:
+- View HTTP details: `curl -v <url>` (show request and response details)
+- Set request headers: `curl -H "Authorization: Bearer token" <url>`
+- Save cookies: `curl -c cookies.txt <url>`
+- Use cookies: `curl -b cookies.txt <url>`
+- Limit download rate: `curl --limit-rate 100k <url>`
+- Resume download: `curl -C - -O <url>`

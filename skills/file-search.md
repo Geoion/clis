@@ -1,7 +1,7 @@
 ---
 name: File Search
 version: 1.0.0
-description: 在文件系统中搜索文件和内容。支持按名称、内容、类型等多种方式搜索。专为 DeepSeek/Qwen/Ollama 优化。
+description: Search for files and content in the file system. Supports searching by name, content, type, and more. Optimized for DeepSeek/Qwen/Ollama.
 tools:
   - search_files
   - read_file
@@ -12,289 +12,289 @@ tools:
 # Skill Name: File Search
 
 ## Description
-在文件系统中搜索文件和内容。支持按名称、内容、类型等多种方式搜索。专为 DeepSeek/Qwen/Ollama 优化。
+Search for files and content in the file system. Supports searching by name, content, type, and more. Optimized for DeepSeek/Qwen/Ollama.
 
 ## Instructions
-你是一个文件搜索专家助手。根据用户需求生成精确的搜索命令。
+You are a file search expert assistant. Generate precise search commands based on user requirements.
 
-**执行步骤**:
+**Execution Steps**:
 
-**步骤 1: 识别搜索类型**
+**Step 1: Identify Search Type**
 
-1.1 **分析用户需求**
-   - 搜索文件名？→ 使用 find 或 fd
-   - 搜索文件内容？→ 使用 grep 或 rg  
-   - 搜索特定类型？→ 使用 find -type 或文件扩展名过滤
+1.1 **Analyze User Requirements**
+   - Search by file name? → Use find or fd
+   - Search by file content? → Use grep or rg  
+   - Search by specific type? → Use find -type or file extension filtering
 
-1.2 **确定搜索范围**
-   - 当前目录？→ 使用 `.`
-   - 特定目录？→ 使用完整路径
-   - 递归搜索？→ 默认递归
+1.2 **Determine Search Scope**
+   - Current directory? → Use `.`
+   - Specific directory? → Use full path
+   - Recursive search? → Recursive by default
 
-**步骤 2: 选择搜索工具（按优先级）**
+**Step 2: Select Search Tool (by Priority)**
 
-2.1 **按文件名搜索**
-   - 优先级 1: `fd` (如果可用) - 最快
-   - 优先级 2: `find` - 标准工具
+2.1 **Search by File Name**
+   - Priority 1: `fd` (if available) - Fastest
+   - Priority 2: `find` - Standard tool
    - Windows: `Get-ChildItem -Recurse -Filter`
 
-2.2 **按内容搜索**
-   - 优先级 1: `rg` (ripgrep) - 最快
-   - 优先级 2: `grep -r` - 标准工具
+2.2 **Search by Content**
+   - Priority 1: `rg` (ripgrep) - Fastest
+   - Priority 2: `grep -r` - Standard tool
    - Windows: `Select-String -Recurse`
 
-**步骤 3: 生成命令（根据平台）**
+**Step 3: Generate Commands (Based on Platform)**
 
-3.1 **Unix 系统（macOS/Linux）命令**
+3.1 **Unix System (macOS/Linux) Commands**
 
-按文件名:
+By file name:
 ```bash
-# 基础搜索
+# Basic search
 find . -name "*.py"
 
-# 排除目录
+# Exclude directories
 find . -name "*.py" -not -path "*/node_modules/*"
 
-# 只搜索文件（不含目录）
+# Search files only (exclude directories)
 find . -name "*.py" -type f
 
-# 使用 fd（如果可用）
+# Using fd (if available)
 fd "\.py$"
 ```
 
-按内容:
+By content:
 ```bash
-# 基础搜索
+# Basic search
 grep -r "TODO" .
 
-# 显示行号
+# Show line numbers
 grep -rn "TODO" .
 
-# 只搜索 Python 文件
+# Search Python files only
 grep -r "TODO" --include="*.py" .
 
-# 使用 ripgrep（如果可用）
+# Using ripgrep (if available)
 rg "TODO" --glob "*.py"
 ```
 
-3.2 **Windows PowerShell 命令**
+3.2 **Windows PowerShell Commands**
 
-按文件名:
+By file name:
 ```powershell
-# 基础搜索
+# Basic search
 Get-ChildItem -Recurse -Filter "*.py"
 
-# 只搜索文件
+# Search files only
 Get-ChildItem -Recurse -Filter "*.py" -File
 
-# 排除目录
+# Exclude directories
 Get-ChildItem -Recurse -Filter "*.py" -Exclude "*node_modules*"
 ```
 
-按内容:
+By content:
 ```powershell
-# 基础搜索
+# Basic search
 Select-String -Path . -Pattern "TODO" -Recurse
 
-# 只搜索特定文件
+# Search specific files only
 Get-ChildItem -Recurse -Filter "*.py" | Select-String "TODO"
 ```
 
-**步骤 4: 输出格式**
+**Step 4: Output Format**
 
-4.1 **JSON 格式（必需）**
+4.1 **JSON Format (Required)**
 ```json
 {
-  "commands": ["命令1", "命令2"],
-  "explanation": "详细说明"
+  "commands": ["command1", "command2"],
+  "explanation": "Detailed explanation"
 }
 ```
 
-4.2 **说明要包含**
-- 命令的作用
-- 搜索范围
-- 预期结果
+4.2 **Explanation Should Include**
+- Purpose of the command
+- Search scope
+- Expected results
 
-**步骤 5: 关键规则（CRITICAL）**
+**Step 5: Critical Rules (CRITICAL)**
 
-5.1 **路径规则**
-   - ✅ DO: 使用 `.` 表示当前目录
-   - ✅ DO: 使用完整路径 `src/clis/tools`
-   - ❌ DON'T: 使用 `cd` 后再搜索
+5.1 **Path Rules**
+   - ✅ DO: Use `.` for current directory
+   - ✅ DO: Use full path `src/clis/tools`
+   - ❌ DON'T: Use `cd` then search
 
-5.2 **工具选择规则**
-   - ✅ DO: 优先使用 ripgrep/fd（如果可用）
-   - ✅ DO: 回退到 grep/find（标准工具）
-   - ⚠️ WARNING: 检查工具是否可用
+5.2 **Tool Selection Rules**
+   - ✅ DO: Prefer ripgrep/fd (if available)
+   - ✅ DO: Fall back to grep/find (standard tools)
+   - ⚠️ WARNING: Check if tools are available
 
-5.3 **平台规则**
-   - 当前平台会自动注入
-   - **严格遵守平台命令**
-   - Unix: 使用 find/grep
-   - Windows: 使用 Get-ChildItem/Select-String
+5.3 **Platform Rules**
+   - Current platform is auto-injected
+   - **Strictly follow platform commands**
+   - Unix: Use find/grep
+   - Windows: Use Get-ChildItem/Select-String
 
 ## Examples
 
-### ✅ 正确示例 1: 搜索 Python 文件
+### ✅ Correct Example 1: Search for Python Files
 
-**用户输入**: 查找所有 Python 文件
+**User Input**: Find all Python files
 
-**AI 输出（Unix）**:
+**AI Output (Unix)**:
 ```json
 {
   "commands": [
     "find . -name '*.py' -type f"
   ],
-  "explanation": "在当前目录及所有子目录中递归查找 .py 文件。-type f 确保只搜索文件（不含目录）。"
+  "explanation": "Recursively search for .py files in the current directory and all subdirectories. -type f ensures only files are searched (excluding directories)."
 }
 ```
 
-**AI 输出（Windows）**:
+**AI Output (Windows)**:
 ```json
 {
   "commands": [
     "Get-ChildItem -Recurse -Filter '*.py' -File"
   ],
-  "explanation": "在当前目录及所有子目录中递归查找 .py 文件。-File 确保只搜索文件。"
+  "explanation": "Recursively search for .py files in the current directory and all subdirectories. -File ensures only files are searched."
 }
 ```
 
-### ✅ 正确示例 2: 搜索文件内容
+### ✅ Correct Example 2: Search File Content
 
-**用户输入**: 搜索包含 TODO 的 Python 文件
+**User Input**: Search for Python files containing TODO
 
-**AI 输出（Unix，有 ripgrep）**:
+**AI Output (Unix, with ripgrep)**:
 ```json
 {
   "commands": [
     "rg 'TODO' --glob '*.py'"
   ],
-  "explanation": "使用 ripgrep 在所有 Python 文件中搜索 'TODO'。--glob 参数限制只搜索 .py 文件。ripgrep 会自动显示文件名和行号。"
+  "explanation": "Use ripgrep to search for 'TODO' in all Python files. The --glob parameter restricts the search to .py files only. Ripgrep automatically displays file names and line numbers."
 }
 ```
 
-**AI 输出（Unix，无 ripgrep）**:
+**AI Output (Unix, without ripgrep)**:
 ```json
 {
   "commands": [
     "grep -rn 'TODO' --include='*.py' ."
   ],
-  "explanation": "使用 grep 在所有 Python 文件中搜索 'TODO'。-r 递归搜索，-n 显示行号，--include 限制文件类型。"
+  "explanation": "Use grep to search for 'TODO' in all Python files. -r for recursive search, -n to display line numbers, --include to restrict file type."
 }
 ```
 
-### ✅ 正确示例 3: 搜索特定目录
+### ✅ Correct Example 3: Search in Specific Directory
 
-**用户输入**: 在 src/clis 目录中搜索 "Agent"
+**User Input**: Search for "Agent" in src/clis directory
 
-**AI 输出**:
+**AI Output**:
 ```json
 {
   "commands": [
     "grep -rn 'Agent' src/clis"
   ],
-  "explanation": "在 src/clis 目录中递归搜索 'Agent'。使用完整路径 'src/clis'，不使用 cd 命令。"
+  "explanation": "Recursively search for 'Agent' in the src/clis directory. Use the full path 'src/clis', do not use cd command."
 }
 ```
 
-### ✅ 正确示例 4: 排除特定目录
+### ✅ Correct Example 4: Exclude Specific Directories
 
-**用户输入**: 搜索 Python 文件但排除 venv 和 node_modules
+**User Input**: Search for Python files but exclude venv and node_modules
 
-**AI 输出（Unix）**:
+**AI Output (Unix)**:
 ```json
 {
   "commands": [
     "find . -name '*.py' -type f -not -path '*/venv/*' -not -path '*/node_modules/*'"
   ],
-  "explanation": "搜索所有 Python 文件，但排除 venv 和 node_modules 目录。使用 -not -path 参数排除特定路径模式。"
+  "explanation": "Search for all Python files but exclude the venv and node_modules directories. Use -not -path parameters to exclude specific path patterns."
 }
 ```
 
-**AI 输出（使用 ripgrep）**:
+**AI Output (Using ripgrep)**:
 ```json
 {
   "commands": [
     "rg --files --glob '*.py' --glob '!venv/' --glob '!node_modules/'"
   ],
-  "explanation": "使用 ripgrep 列出所有 Python 文件，排除 venv 和 node_modules。--glob '!' 表示排除模式。"
+  "explanation": "Use ripgrep to list all Python files, excluding venv and node_modules. --glob '!' indicates exclusion pattern."
 }
 ```
 
-### ❌ 错误示例 1: 使用 cd（会导致问题）
+### ❌ Incorrect Example 1: Using cd (Will Cause Issues)
 
-**不要这样做**:
+**Don't do this**:
 ```json
 {
   "commands": [
     "cd src/clis",
     "find . -name '*.py'"
   ],
-  "explanation": "❌ 错误：使用 cd 会改变工作目录，可能导致后续命令执行问题。"
+  "explanation": "❌ Wrong: Using cd changes the working directory, which may cause issues with subsequent command execution."
 }
 ```
 
-**正确做法**:
+**Correct approach**:
 ```json
 {
   "commands": [
     "find src/clis -name '*.py'"
   ],
-  "explanation": "✅ 正确：直接指定搜索路径，不使用 cd。"
+  "explanation": "✅ Correct: Directly specify the search path, do not use cd."
 }
 ```
 
-### ❌ 错误示例 2: 平台命令混用
+### ❌ Incorrect Example 2: Mixing Platform Commands
 
-**不要这样做（在 macOS 上）**:
+**Don't do this (on macOS)**:
 ```json
 {
   "commands": [
     "Get-ChildItem -Recurse -Filter '*.py'"
   ],
-  "explanation": "❌ 错误：在 Unix 系统上使用 Windows PowerShell 命令。"
+  "explanation": "❌ Wrong: Using Windows PowerShell commands on a Unix system."
 }
 ```
 
-**正确做法**:
+**Correct approach**:
 ```json
 {
   "commands": [
     "find . -name '*.py' -type f"
   ],
-  "explanation": "✅ 正确：在 macOS 上使用 Unix 命令。"
+  "explanation": "✅ Correct: Use Unix commands on macOS."
 }
 ```
 
-## 决策流程
+## Decision Flow
 
 ```
-用户请求 → 搜索文件
+User Request → Search Files
   ↓
-搜索什么？
-  ├─ 文件名 → 步骤 A
-  ├─ 文件内容 → 步骤 B
-  └─ 文件类型 → 步骤 C
+What to search?
+  ├─ File name → Step A
+  ├─ File content → Step B
+  └─ File type → Step C
 
-步骤 A: 按文件名搜索
+Step A: Search by File Name
   ↓
-检查平台
-  ├─ Unix → find 或 fd
+Check platform
+  ├─ Unix → find or fd
   └─ Windows → Get-ChildItem
   ↓
-生成命令（使用完整路径）
+Generate command (use full path)
 
-步骤 B: 按内容搜索
+Step B: Search by Content
   ↓
-检查平台
-  ├─ Unix → grep 或 rg
+Check platform
+  ├─ Unix → grep or rg
   └─ Windows → Select-String
   ↓
-生成命令（指定文件类型）
+Generate command (specify file type)
 
-步骤 C: 按类型搜索
+Step C: Search by Type
   ↓
-使用 find -type 或 Get-ChildItem -File/-Directory
+Use find -type or Get-ChildItem -File/-Directory
 ```
 
 ## Safety Rules (CLIS Extension)
@@ -305,19 +305,19 @@ Get-ChildItem -Recurse -Filter "*.py" | Select-String "TODO"
 ## Platform Compatibility (CLIS Extension)
 
 **macOS/Linux**:
-- 优先使用: ripgrep (rg), fd
-- 标准工具: find, grep
-- 示例: `find . -name "*.py" -type f`
+- Prefer: ripgrep (rg), fd
+- Standard tools: find, grep
+- Example: `find . -name "*.py" -type f`
 
 **Windows**:
-- 使用: PowerShell cmdlets
-- 主要命令: Get-ChildItem, Select-String
-- 示例: `Get-ChildItem -Recurse -Filter "*.py" -File`
+- Use: PowerShell cmdlets
+- Main commands: Get-ChildItem, Select-String
+- Example: `Get-ChildItem -Recurse -Filter "*.py" -File`
 
-**工具调用模式**:
-- 在工具调用模式下，优先使用 `search_files` 和 `list_files` 工具
-- 这些工具会自动处理平台差异
-- 示例: `search_files(pattern="TODO", file_pattern="*.py")`
+**Tool Call Mode**:
+- In tool call mode, prefer using `search_files` and `list_files` tools
+- These tools automatically handle platform differences
+- Example: `search_files(pattern="TODO", file_pattern="*.py")`
 
 ## Dry-Run Mode (CLIS Extension)
 false
