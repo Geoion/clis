@@ -192,11 +192,19 @@ User request: {query}
 - git_diff: View changes in files
 - git_add: Stage files for commit (can stage multiple: files=["a.py", "b.py"])
 - git_commit: Commit staged changes with a message
-- file_tree: View directory structure
-- read_file: Read file content
-- write_file: Write content to file (requires confirmation)
-- delete_file: Delete a file (requires confirmation)
-- search_files: Search for files by name pattern
+- file_tree: View directory structure (params: path, max_depth, show_hidden, pattern)
+- read_file: Read file content (params: path, offset, limit)
+- write_file: Write content to file (params: path, content) - requires confirmation
+- edit_file: Edit existing file using search and replace (params: path, old_string, new_string) - requires confirmation
+- delete_file: Delete a file (params: path) - requires confirmation
+- search_files: Basic text search (literal matching, no regex)
+  * Params: pattern (required), path (default: "."), file_pattern, case_sensitive, max_results
+  * Example: {{"tool": "search_files", "params": {{"pattern": "TODO", "file_pattern": "*.py"}}}}
+  * ⚠️ Does NOT support: regex, ignore_case, context_lines
+- grep: Advanced search with regex and context support
+  * Params: pattern (required), path (default: "."), file_pattern, regex, ignore_case, max_results, context_lines
+  * Example: {{"tool": "grep", "params": {{"pattern": "class.*:", "regex": true, "file_pattern": "*.py"}}}}
+  * ⚠️ Does NOT support: limit (use max_results instead)
 - list_files: List files in a directory
 - execute_command: Execute shell command (use only when no specific tool available)
 
@@ -205,15 +213,26 @@ User request: {query}
 2. After gathering info (2-3 iterations), START EXECUTING
 3. For simple tasks (deletion, single commit), act immediately
 4. When task is complete, respond with {{"type": "done", "summary": "..."}}
-5. Use specific tools (delete_file, write_file) instead of execute_command
-6. **ERROR HANDLING**: If a tool fails with an error:
+5. Use specific tools (delete_file, write_file, edit_file) instead of execute_command
+6. **PARAMETER NAMING**: Always use correct parameter names:
+   - search_files: pattern, path, file_pattern, case_sensitive, max_results (NO regex, ignore_case, or context_lines!)
+   - grep: pattern, path, file_pattern, regex, ignore_case, max_results, context_lines (NO limit!)
+   - edit_file: path, old_string, new_string (for search-and-replace editing)
+   - write_file: path, content (for creating new files or overwriting entire file)
+   - file_tree: path, max_depth, show_hidden, pattern (use 'pattern' NOT 'file_pattern')
+   - read_file: path, offset, limit (use 'path' NOT 'file' or 'filename')
+   - If unsure, check the tool description above carefully - each tool has DIFFERENT parameters!
+7. **ERROR HANDLING**: If a tool fails with an error:
    - DON'T immediately give up or repeat the same action
    - Analyze the error message and provide helpful guidance to the user
    - For "Cannot connect to Docker daemon": Tell user to start Docker Desktop/service
    - For "command not found": Tell user to install the missing tool
    - For "permission denied": Explain why and suggest solutions
+   - For "unexpected keyword argument 'regex'": You tried to use grep parameters on search_files - use grep tool instead!
+   - For "unexpected keyword argument 'limit'": Use max_results instead of limit for grep tool
+   - For "unexpected keyword argument 'include'": Use file_pattern instead of include for search_files/grep
    - Mark as done with clear explanation of the problem and solution
-7. **USER REJECTION HANDLING**: If user rejects a tool (see "User rejected tool" in recent actions):
+8. **USER REJECTION HANDLING**: If user rejects a tool (see "User rejected tool" in recent actions):
    - DON'T just give up and mark as done
    - Ask the user if they want to modify the operation (e.g., delete fewer images)
    - Provide alternatives or ask for clarification
@@ -768,6 +787,29 @@ Iteration 4: Done
 ```action
 {"type": "done", "summary": "Added new feature to auth module"}
 ```
+
+─────────────────────────────────────────
+Example 6: Edit Existing File (Preferred for modifications)
+─────────────────────────────────────────
+User: "Change the log level from DEBUG to INFO in config.py"
+
+✅ CORRECT Approach (use edit_file):
+Iteration 1: Read current content
+```action
+{"type": "tool", "tool": "read_file", "params": {"path": "config.py"}}
+```
+
+Iteration 2: Edit specific part
+```action
+{"type": "tool", "tool": "edit_file", "params": {"path": "config.py", "old_string": "log_level = 'DEBUG'", "new_string": "log_level = 'INFO'"}}
+```
+
+Iteration 3: Done
+```action
+{"type": "done", "summary": "Changed log level from DEBUG to INFO"}
+```
+
+❌ WRONG: Don't use write_file for small changes (overwrites entire file)
 
 ═══════════════════════════════════════════════════════════════
 🎯 KEY PRINCIPLES:
