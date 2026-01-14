@@ -54,6 +54,16 @@ class GitCheckoutTool(Tool):
     def is_readonly(self) -> bool:
         return False  # Modifies working directory
     
+    @property
+    def risk_score(self) -> int:
+        """Git checkout is high risk - can discard uncommitted changes."""
+        return 70
+    
+    @property
+    def requires_confirmation(self) -> bool:
+        """Git checkout requires confirmation as it can discard changes."""
+        return True
+    
     def execute(
         self,
         branch: str = "",

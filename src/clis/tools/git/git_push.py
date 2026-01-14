@@ -59,6 +59,16 @@ class GitPushTool(Tool):
     def is_readonly(self) -> bool:
         return False  # Write operation
     
+    @property
+    def risk_score(self) -> int:
+        """Git push is high risk - affects remote repository."""
+        return 70
+    
+    @property
+    def requires_confirmation(self) -> bool:
+        """Git push always requires confirmation."""
+        return True
+    
     def execute(
         self,
         remote: str = "origin",

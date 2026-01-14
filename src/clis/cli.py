@@ -239,6 +239,13 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                     if params:
                         console.print(f"   [dim]Parameters:[/dim] [yellow]{params}[/yellow]")
                     
+                    # Display risk score if available
+                    risk_score = step.get('risk_score')
+                    risk_level = step.get('risk_level')
+                    if risk_score is not None and risk_level:
+                        risk_color = {"low": "green", "medium": "yellow", "high": "red", "critical": "bold red"}.get(risk_level, "white")
+                        console.print(f"   [dim]Risk:[/dim] [{risk_color}]{risk_level}[/{risk_color}] [dim]({risk_score}/100)[/dim]")
+                    
                     # Check if tool requires confirmation
                     if step.get('requires_confirmation'):
                         console.print(f"   [yellow]⚠️  This operation requires confirmation[/yellow]")

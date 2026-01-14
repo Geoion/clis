@@ -52,6 +52,11 @@ class DeleteFileTool(Tool):
         return False
     
     @property
+    def risk_score(self) -> int:
+        """Delete file is high risk - permanently removes data."""
+        return 75
+    
+    @property
     def requires_confirmation(self) -> bool:
         """Delete always requires confirmation."""
         return True

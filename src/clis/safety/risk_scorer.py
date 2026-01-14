@@ -41,7 +41,8 @@ class RiskScorer:
         # Check for read-only operations (low risk)
         readonly_patterns = [
             r"^(ls|cat|less|more|head|tail|grep|find|which|whereis)\s",
-            r"^git\s+(status|log|diff|show|branch)\s",
+            r"^git\s+(status|log|diff|show)(\s|$)",
+            r"^git\s+branch\s*$",  # List branches only
             r"^docker\s+(ps|images|inspect)\s",
         ]
         
@@ -52,13 +53,25 @@ class RiskScorer:
         # Check for write operations (medium risk)
         write_patterns = [
             r"^(echo|touch|mkdir|cp|mv)\s",
-            r"^git\s+(add|commit|stash)\s",
+            r"^git\s+(add|commit|stash)(\s|$)",
             r"^docker\s+(run|start|stop)\s",
         ]
         
         for pattern in write_patterns:
             if re.match(pattern, command, re.IGNORECASE):
                 score = 50
+        
+        # Check for high-risk git operations (high risk)
+        high_risk_git_patterns = [
+            r"^git\s+push(\s|$)",  # Any git push is risky
+            r"^git\s+pull(\s|$)",  # Can overwrite local changes
+            r"^git\s+checkout\s",  # Can discard changes
+            r"^git\s+branch\s.*(-[dD]|--delete)",  # Branch deletion
+        ]
+        
+        for pattern in high_risk_git_patterns:
+            if re.match(pattern, command, re.IGNORECASE):
+                score = 70
         
         # Check for delete/modify operations (high risk)
         delete_patterns = [
@@ -87,8 +100,19 @@ class RiskScorer:
                 score = 95
         
         # Additional risk factors
-        if "-rf" in command or "--force" in command:
-            score += 10
+        if "--force" in command:
+            # Force flags significantly increase risk
+            score = max(score, 80)  # Ensure at least high risk
+            score = min(score + 15, 100)
+        elif re.search(r'(?:^|\s)-f(?:\s|$)', command):
+            # Check for -f as a standalone flag (not part of another flag or path)
+            # Matches -f preceded by start or space, followed by space or end
+            score = max(score, 80)
+            score = min(score + 15, 100)
+        
+        if "-rf" in command or "-fr" in command:
+            # Recursive force deletion is extremely dangerous
+            score = max(score, 85)
         
         if "|" in command or ">" in command or ">>" in command:
             score += 5
@@ -141,3 +165,88 @@ class RiskScorer:
             return actions.high
         else:
             return actions.critical
+    
+    def score_tool_operation(self, tool_name: str, parameters: dict) -> int:
+        """
+        Calculate risk score for a tool operation.
+        
+        This provides tool-specific risk scoring beyond just command strings.
+        
+        Args:
+            tool_name: Name of the tool being called
+            parameters: Tool parameters
+            
+        Returns:
+            Risk score (0-100)
+        """
+        # Base scores for tools
+        tool_base_scores = {
+            # Low risk - read-only operations
+            "list_files": 10,
+            "read_file": 10,
+            "file_tree": 10,
+            "get_file_info": 10,
+            "grep": 10,
+            "search_files": 10,
+            "read_lints": 10,
+            "git_status": 10,
+            "git_log": 10,
+            "git_diff": 10,
+            "docker_ps": 10,
+            "docker_logs": 10,
+            "docker_inspect": 10,
+            "docker_stats": 10,
+            "system_info": 10,
+            "check_command": 10,
+            "get_env": 10,
+            "list_processes": 10,
+            "check_port": 10,
+            
+            # Medium risk - write/modify operations
+            "write_file": 50,
+            "edit_file": 50,
+            "git_add": 50,
+            "git_commit": 50,
+            "http_request": 50,
+            
+            # High risk - destructive or remote operations
+            "delete_file": 75,
+            "git_checkout": 70,
+            "git_pull": 70,
+            "git_push": 70,
+            "git_branch": 60,  # Varies by action
+            "run_terminal_cmd": 60,  # Varies by command
+        }
+        
+        score = tool_base_scores.get(tool_name, 50)  # Default to medium risk
+        
+        # Adjust based on parameters
+        if tool_name == "git_push" and parameters.get("force"):
+            score = 85  # Force push is very dangerous
+        
+        if tool_name == "git_branch":
+            action = parameters.get("action", "list")
+            if action == "delete":
+                score = 75
+            elif action in ["create", "rename"]:
+                score = 50
+        
+        if tool_name == "delete_file":
+            if parameters.get("recursive"):
+                score = 85  # Recursive delete is more dangerous
+            if parameters.get("force"):
+                score = min(score + 10, 95)
+        
+        if tool_name == "run_terminal_cmd":
+            command = parameters.get("command", "")
+            if command:
+                # Use command scoring for terminal commands
+                score = self.score(command)
+        
+        if tool_name == "git_checkout" and parameters.get("file_path"):
+            # Restoring files can discard changes
+            score = 70
+        
+        logger.debug(f"Risk score for tool '{tool_name}' with params {parameters}: {score}")
+        
+        return score

@@ -50,6 +50,16 @@ class WriteFileTool(Tool):
         """Write operations modify files, so not readonly."""
         return False
     
+    @property
+    def risk_score(self) -> int:
+        """Write file is medium risk - modifies files."""
+        return 50
+    
+    @property
+    def requires_confirmation(self) -> bool:
+        """Write file requires confirmation as it modifies files."""
+        return True
+    
     def execute(self, path: str, content: str, mode: str = "write") -> ToolResult:
         """Execute write file."""
         try:

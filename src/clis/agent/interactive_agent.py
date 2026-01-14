@@ -289,12 +289,22 @@ OR when complete:
                     tool = self.tool_executor.get_tool(tool_name)
                     requires_confirmation = getattr(tool, 'requires_confirmation', False) if tool else False
                     
+                    # Calculate risk score for this tool operation
+                    risk_score = self.risk_scorer.score_tool_operation(tool_name, params)
+                    risk_level = self.risk_scorer.get_risk_level(risk_score)
+                    
+                    # Override requires_confirmation based on risk level
+                    if risk_level in ["high", "critical"]:
+                        requires_confirmation = True
+                    
                     yield {
                         "type": "tool_call",
                         "content": f"Calling {tool_name}",
                         "tool": tool_name,
                         "params": params,
-                        "requires_confirmation": requires_confirmation
+                        "requires_confirmation": requires_confirmation,
+                        "risk_score": risk_score,
+                        "risk_level": risk_level
                     }
                     
                     # If tool requires confirmation, wait for user approval

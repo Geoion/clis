@@ -40,6 +40,21 @@ class GitCommitTool(Tool):
             "required": ["message"]
         }
     
+    @property
+    def is_readonly(self) -> bool:
+        """Git commit modifies repository history, so not read-only."""
+        return False
+    
+    @property
+    def risk_score(self) -> int:
+        """Git commit is medium risk - creates permanent history."""
+        return 50
+    
+    @property
+    def requires_confirmation(self) -> bool:
+        """Git commit requires confirmation as it creates permanent history."""
+        return True
+    
     def execute(self, message: str, amend: bool = False) -> ToolResult:
         """Execute git commit."""
         try:

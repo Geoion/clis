@@ -63,6 +63,41 @@ class Tool(ABC):
         """
         return True  # Default to read-only for safety
     
+    @property
+    def risk_score(self) -> int:
+        """
+        Base risk score for this tool (0-100).
+        
+        This provides a baseline risk level that can be adjusted based on
+        parameters during execution. High-risk tools should override this.
+        
+        Scoring guide:
+        - 0-30: Low risk (read-only operations)
+        - 31-60: Medium risk (write operations)
+        - 61-90: High risk (destructive operations)
+        - 91-100: Critical risk (system-level operations)
+        
+        Returns:
+            Risk score (0-100)
+        """
+        # Default: low risk if readonly, medium risk if not
+        return 10 if self.is_readonly else 50
+    
+    @property
+    def requires_confirmation(self) -> bool:
+        """
+        Whether this tool requires user confirmation before execution.
+        
+        Tools that modify state or perform risky operations should
+        require confirmation. The actual confirmation logic uses both
+        this property and dynamic risk scoring.
+        
+        Returns:
+            True if confirmation is required
+        """
+        # Default: require confirmation for non-readonly tools
+        return not self.is_readonly
+    
     @abstractmethod
     def execute(self, **kwargs) -> ToolResult:
         """

@@ -41,6 +41,21 @@ class GitAddTool(Tool):
             "required": []
         }
     
+    @property
+    def is_readonly(self) -> bool:
+        """Git add modifies the index, so not read-only."""
+        return False
+    
+    @property
+    def risk_score(self) -> int:
+        """Git add is medium risk - stages changes."""
+        return 50
+    
+    @property
+    def requires_confirmation(self) -> bool:
+        """Git add requires confirmation as it modifies the index."""
+        return True
+    
     def execute(self, files: Optional[List[str]] = None, all: bool = False) -> ToolResult:
         """Execute git add."""
         try:

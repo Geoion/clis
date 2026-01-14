@@ -82,6 +82,22 @@ class RunTerminalCmdTool(Tool):
     def is_readonly(self) -> bool:
         return False  # Executes commands
     
+    @property
+    def risk_score(self) -> int:
+        """
+        Run terminal command is medium-to-high risk.
+        Actual risk depends on the command being executed.
+        """
+        return 60
+    
+    @property
+    def requires_confirmation(self) -> bool:
+        """
+        Terminal commands require confirmation.
+        Risk is evaluated per-command in the safety middleware.
+        """
+        return True
+    
     def execute(
         self,
         command: str = "",
