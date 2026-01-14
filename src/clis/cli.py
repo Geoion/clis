@@ -578,43 +578,25 @@ def main(ctx: click.Context, verbose: bool, minimal: bool, debug: bool) -> None:
         click.echo(ctx.get_help())
 
 
-# Import memory CLI commands
-from clis.cli.memory_cli import memory_cli
+# Import CLI command modules
+from clis.cli import (
+    memory_cli,
+    run,
+    config_cli,
+    skill_cli,
+    version,
+    doctor,
+    init,
+)
 
-# Add memory command group
-main.add_command(memory_cli)
-
-
-@main.command()
-@click.argument("query")
-@click.option("--no-tool-calling", is_flag=True, help="Disable tool calling mode (use standard mode)")
-@click.pass_context
-def run(ctx: click.Context, query: str, no_tool_calling: bool) -> None:
-    """
-    Execute a natural language query.
-    
-    Tool calling mode is enabled by default with step-by-step execution (ReAct pattern).
-    Use --no-tool-calling to use standard mode (single-shot generation).
-    
-    Examples:
-        clis run "show system information"
-        clis run "commit code with message: fix bug"
-        clis run "find and fix all TODOs"
-        clis run "list files" --no-tool-calling
-    """
-    verbose = ctx.obj.get("verbose", False)
-    minimal = ctx.obj.get("minimal", False)
-    debug = ctx.obj.get("debug", False)
-    
-    # Tool calling is enabled by default (ReAct mode)
-    tool_calling = not no_tool_calling
-    
-    if tool_calling:
-        # Use ReAct mode (step-by-step with tools)
-        execute_query_interactive(query, verbose, minimal, debug)
-    else:
-        # Use standard mode (single-shot)
-        execute_query(query, verbose, minimal, debug, tool_calling=False)
+# Register all command groups and commands
+main.add_command(run)           # clis run
+main.add_command(memory_cli)    # clis memory
+main.add_command(config_cli)    # clis config
+main.add_command(skill_cli)     # clis skill
+main.add_command(version)       # clis version
+main.add_command(doctor)        # clis doctor
+main.add_command(init)          # clis init
 
 
 @main.command()
