@@ -44,6 +44,11 @@ class GitLogTool(Tool):
                     "type": "string",
                     "description": "Show commits that modified this file"
                 },
+                "files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Show commits that modified these files (alternative to 'file')"
+                },
                 "oneline": {
                     "type": "boolean",
                     "default": True,
@@ -54,7 +59,7 @@ class GitLogTool(Tool):
     
     def execute(self, max_count: int = 10, author: Optional[str] = None,
                 since: Optional[str] = None, file: Optional[str] = None,
-                oneline: bool = True) -> ToolResult:
+                files: Optional[list] = None, oneline: bool = True) -> ToolResult:
         """Execute git log."""
         try:
             cmd = ["git", "log", f"-{max_count}"]
@@ -67,6 +72,12 @@ class GitLogTool(Tool):
             
             if since:
                 cmd.append(f"--since={since}")
+            
+            # Support both 'file' (singular) and 'files' (plural)
+            if files:
+                # If 'files' is provided, use the first file
+                if isinstance(files, list) and len(files) > 0:
+                    file = files[0]
             
             if file:
                 cmd.append("--")
