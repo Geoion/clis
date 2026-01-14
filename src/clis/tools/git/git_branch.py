@@ -75,10 +75,11 @@ class GitBranchTool(Tool):
     @property
     def requires_confirmation(self) -> bool:
         """
-        Branch operations that modify state require confirmation.
-        The actual risk is evaluated per-action in the interactive agent.
+        Branch modification operations require confirmation.
+        List operation is safe and doesn't need confirmation.
+        Risk is dynamically evaluated based on action parameters.
         """
-        return False  # Will be dynamically evaluated based on action
+        return True  # Changed to True - all modifications need confirmation
     
     def execute(
         self,

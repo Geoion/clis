@@ -327,6 +327,21 @@ class ExecuteCommandTool(Tool):
             "required": ["command"]
         }
     
+    @property
+    def is_readonly(self) -> bool:
+        """Command execution is not read-only."""
+        return False
+    
+    @property
+    def risk_score(self) -> int:
+        """Execute command is high risk - runs arbitrary commands."""
+        return 60
+    
+    @property
+    def requires_confirmation(self) -> bool:
+        """Execute command always requires confirmation."""
+        return True
+    
     def execute(self, command: str, timeout: int = 30) -> ToolResult:
         """Execute shell command."""
         try:
