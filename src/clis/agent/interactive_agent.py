@@ -312,10 +312,16 @@ OR when complete:
                         "success": result.success
                     })
                     
+                    # Prepare content for return (use error message if failed)
+                    if result.success:
+                        content = result.output[:500] if result.output else "Success"
+                    else:
+                        content = result.error if result.error else (result.output[:500] if result.output else "Unknown error")
+                    
                     # Add to context manager
                     obs_type = ObservationType.ERROR if not result.success else ObservationType.TOOL_RESULT
                     self.context_manager.add_observation(
-                        content=f"Tool '{tool_name}' result: {result.output[:500]}",
+                        content=f"Tool '{tool_name}' result: {content}",
                         obs_type=obs_type,
                         is_critical=not result.success,
                         tool_name=tool_name
@@ -323,7 +329,7 @@ OR when complete:
                     
                     yield {
                         "type": "tool_result",
-                        "content": result.output[:500],
+                        "content": content,
                         "success": result.success
                     }
                 
