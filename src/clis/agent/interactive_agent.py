@@ -85,20 +85,20 @@ class InteractiveAgent:
             logger.warning(f"Failed to load safety config: {e}")
             self.safety_config = None
         
-        # ============ 新增: 混合记忆系统 ============
-        # 工作记忆 (内存)
+        # ============ New: Hybrid memory system ============
+        # Working memory (in-memory)
         self.working_memory = WorkingMemory()
         
-        # 情景记忆 (任务文档) - 在任务开始时创建
+        # Episodic memory (task document) - created at task start
         self.episodic_memory: Optional[EpisodicMemory] = None
         
-        # 状态机
+        # State machine
         self.state_machine = TaskStateMachine(max_iterations=self.max_iterations)
         
-        # 记忆管理器
+        # Memory manager
         self.memory_manager = MemoryManager()
         
-        # 当前任务ID
+        # Current task ID
         self.current_task_id: Optional[str] = None
     
     def execute(self, query: str, stream_thinking: bool = False) -> Generator[Dict[str, Any], None, None]:
