@@ -25,22 +25,22 @@ console = Console()
 
 @click.group(name="memory")
 def memory_cli():
-    """管理任务记忆 (Manage task memories)"""
+    """Manage task memories"""
     pass
 
 
 @memory_cli.command()
 @click.option('--status', type=click.Choice(['active', 'completed', 'archived', 'failed']),
-              help='过滤任务状态')
-@click.option('--limit', type=int, default=20, help='最大显示数量')
-@click.option('--verbose', '-v', is_flag=True, help='显示详细信息')
+              help='Filter task status')
+@click.option('--limit', type=int, default=20, help='Maximum number to display')
+@click.option('--verbose', '-v', is_flag=True, help='Show detailed information')
 def list(status: Optional[str], limit: int, verbose: bool):
-    """列出任务记忆"""
+    """List task memories"""
     from clis.agent.memory_manager import MemoryManager
     
     manager = MemoryManager()
     
-    # 获取任务列表
+    # Get task list
     if status:
         from clis.agent.memory_manager import TaskStatus
         status_enum = TaskStatus(status)
@@ -49,11 +49,11 @@ def list(status: Optional[str], limit: int, verbose: bool):
         tasks = manager.list_tasks(limit=limit)
     
     if not tasks:
-        console.print("[yellow]没有找到任务记忆[/yellow]")
+        console.print("[yellow]No task memories found[/yellow]")
         return
     
-    # 创建表格
-    table = Table(title=f"📋 任务记忆 (共 {len(tasks)} 个)")
+    # Create table
+    table = Table(title=f"📋 Task Memories ({len(tasks)} total)")
     table.add_column("Task ID", style="cyan")
     table.add_column("Status", style="magenta")
     table.add_column("Created", style="green")
@@ -79,15 +79,15 @@ def list(status: Optional[str], limit: int, verbose: bool):
         row = [task_id, status_display, created, description]
         
         if verbose:
-            # 计算持续时间
+            # Calculate duration
             if 'completed_at' in task:
                 start = datetime.fromisoformat(task['created_at'])
                 end = datetime.fromisoformat(task['completed_at'])
-                duration = str(end - start).split('.')[0]  # 去掉微秒
+                duration = str(end - start).split('.')[0]  # Remove microseconds
             else:
-                duration = "进行中"
+                duration = "In progress"
             
-            # TODO: 从文件读取统计信息
+            # TODO: Read statistics from file
             files_count = "N/A"
             
             row.extend([duration, files_count])
@@ -96,39 +96,39 @@ def list(status: Optional[str], limit: int, verbose: bool):
     
     console.print(table)
     
-    # 提示
-    console.print(f"\n💡 使用 [cyan]clis memory show <task_id>[/cyan] 查看详情")
+    # Hint
+    console.print(f"\n💡 Use [cyan]clis memory show <task_id>[/cyan] to view details")
 
 
 @memory_cli.command()
 @click.argument('task_id')
-@click.option('--full', is_flag=True, help='显示完整内容')
-@click.option('--edit', is_flag=True, help='在编辑器中打开')
+@click.option('--full', is_flag=True, help='Show full content')
+@click.option('--edit', is_flag=True, help='Open in editor')
 def show(task_id: str, full: bool, edit: bool):
-    """查看任务详情"""
+    """View task details"""
     from clis.agent.memory_manager import MemoryManager
     
     manager = MemoryManager()
     task_file = manager.get_task_file(task_id)
     
     if not task_file or not task_file.exists():
-        console.print(f"[red]❌ 任务 {task_id} 不存在[/red]")
+        console.print(f"[red]❌ Task {task_id} does not exist[/red]")
         return
     
-    # 在编辑器中打开
+    # Open in editor
     if edit:
         import subprocess
         editor = os.environ.get('EDITOR', 'vim')
         subprocess.run([editor, str(task_file)])
         return
     
-    # 读取任务信息
+    # Read task information
     task_info = manager.metadata['tasks'].get(task_id)
     if not task_info:
-        console.print(f"[red]❌ 任务元数据不存在[/red]")
+        console.print(f"[red]❌ Task metadata does not exist[/red]")
         return
     
-    # 显示任务信息
+    # Display task information
     status_icon = {
         'active': '🔄',
         'completed': '✅',
@@ -155,106 +155,106 @@ def show(task_id: str, full: bool, edit: bool):
     panel = Panel(info_text, title=f"📋 Task: {task_id}", border_style="cyan")
     console.print(panel)
     
-    # 显示文件内容
+    # Show file content
     if full:
         content = task_file.read_text(encoding='utf-8')
         console.print("\n" + "="*60)
         console.print(content)
     else:
-        # 显示摘要
-        console.print(f"\n[dim]文件位置: {task_file}[/dim]")
-        console.print("[dim]使用 --full 显示完整内容[/dim]")
-        console.print("[dim]使用 --edit 在编辑器中打开[/dim]")
+        # Show summary
+        console.print(f"\n[dim]File location: {task_file}[/dim]")
+        console.print("[dim]Use --full to show full content[/dim]")
+        console.print("[dim]Use --edit to open in editor[/dim]")
 
 
 @memory_cli.command()
 @click.argument('query')
-@click.option('--content', is_flag=True, help='搜索文件内容')
-@click.option('--regex', is_flag=True, help='使用正则表达式')
+@click.option('--content', is_flag=True, help='Search file content')
+@click.option('--regex', is_flag=True, help='Use regular expression')
 def search(query: str, content: bool, regex: bool):
-    """搜索任务记忆"""
+    """Search task memories"""
     from clis.agent.memory_manager import MemoryManager
     
     manager = MemoryManager()
     
     if content:
-        console.print("[yellow]内容搜索功能开发中...[/yellow]")
+        console.print("[yellow]Content search feature is under development...[/yellow]")
         return
     
-    # 简单搜索描述
+    # Simple description search
     results = manager.search_tasks(query)
     
     if not results:
-        console.print(f"[yellow]没有找到匹配 '{query}' 的任务[/yellow]")
+        console.print(f"[yellow]No tasks matching '{query}' found[/yellow]")
         return
     
-    console.print(f"[green]找到 {len(results)} 个匹配的任务:[/green]\n")
+    console.print(f"[green]Found {len(results)} matching tasks:[/green]\n")
     
     for task in results:
         console.print(f"  • [cyan]{task['id']}[/cyan]: {task['description']}")
     
-    console.print(f"\n💡 使用 [cyan]clis memory show <task_id>[/cyan] 查看详情")
+    console.print(f"\n💡 Use [cyan]clis memory show <task_id>[/cyan] to view details")
 
 
 @memory_cli.command()
 @click.argument('task_id', required=False)
-@click.option('--status', type=click.Choice(['failed']), help='删除指定状态的所有任务')
-@click.option('--older-than', help='删除早于指定时间的任务 (如: 90days)')
-@click.option('--force', '-f', is_flag=True, help='跳过确认')
+@click.option('--status', type=click.Choice(['failed']), help='Delete all tasks with specified status')
+@click.option('--older-than', help='Delete tasks older than specified time (e.g.: 90days)')
+@click.option('--force', '-f', is_flag=True, help='Skip confirmation')
 def delete(task_id: Optional[str], status: Optional[str], older_than: Optional[str], force: bool):
-    """删除任务记忆"""
+    """Delete task memories"""
     from clis.agent.memory_manager import MemoryManager
     
     manager = MemoryManager()
     
-    # 删除单个任务
+    # Delete single task
     if task_id:
         task_info = manager.metadata['tasks'].get(task_id)
         if not task_info:
-            console.print(f"[red]❌ 任务 {task_id} 不存在[/red]")
+            console.print(f"[red]❌ Task {task_id} does not exist[/red]")
             return
         
-        # 确认
+        # Confirm
         if not force:
-            confirm = click.confirm(f"确定要删除任务 {task_id}?")
+            confirm = click.confirm(f"Are you sure you want to delete task {task_id}?")
             if not confirm:
-                console.print("[yellow]已取消[/yellow]")
+                console.print("[yellow]Cancelled[/yellow]")
                 return
         
-        # 删除文件
+        # Delete file
         task_file = manager.get_task_file(task_id)
         if task_file and task_file.exists():
             task_file.unlink()
         
-        # 删除元数据
+        # Delete metadata
         del manager.metadata['tasks'][task_id]
         manager._save_metadata()
         
-        console.print(f"[green]✅ 已删除任务 {task_id}[/green]")
+        console.print(f"[green]✅ Task {task_id} deleted[/green]")
         return
     
-    # 批量删除
+    # Batch delete
     if status or older_than:
-        console.print("[yellow]批量删除功能开发中...[/yellow]")
+        console.print("[yellow]Batch delete feature is under development...[/yellow]")
         return
     
-    console.print("[red]请指定 task_id 或使用 --status/--older-than 选项[/red]")
+    console.print("[red]Please specify task_id or use --status/--older-than options[/red]")
 
 
 @memory_cli.command()
 @click.argument('task_id', required=False)
-@click.option('--all-completed', is_flag=True, help='归档所有已完成任务')
+@click.option('--all-completed', is_flag=True, help='Archive all completed tasks')
 def archive(task_id: Optional[str], all_completed: bool):
-    """归档任务记忆"""
+    """Archive task memories"""
     from clis.agent.memory_manager import MemoryManager
     
     manager = MemoryManager()
     
     if task_id:
         manager._archive_task(task_id)
-        console.print(f"[green]✅ 已归档任务 {task_id}[/green]")
+        console.print(f"[green]✅ Task {task_id} archived[/green]")
     elif all_completed:
-        # 归档所有已完成任务
+        # Archive all completed tasks
         completed_tasks = [
             tid for tid, info in manager.metadata['tasks'].items()
             if info['status'] == 'completed'
@@ -263,49 +263,49 @@ def archive(task_id: Optional[str], all_completed: bool):
         for tid in completed_tasks:
             manager._archive_task(tid)
         
-        console.print(f"[green]✅ 已归档 {len(completed_tasks)} 个任务[/green]")
+        console.print(f"[green]✅ {len(completed_tasks)} tasks archived[/green]")
     else:
-        console.print("[red]请指定 task_id 或使用 --all-completed[/red]")
+        console.print("[red]Please specify task_id or use --all-completed[/red]")
 
 
 @memory_cli.command()
-@click.option('--keep-days', type=int, help='保留天数')
-@click.option('--archive', is_flag=True, help='清理归档任务')
-@click.option('--keep-months', type=int, default=3, help='归档保留月数')
-@click.option('--dry-run', is_flag=True, help='预览清理 (不实际删除)')
+@click.option('--keep-days', type=int, help='Days to keep')
+@click.option('--archive', is_flag=True, help='Clean archived tasks')
+@click.option('--keep-months', type=int, default=3, help='Months to keep archived tasks')
+@click.option('--dry-run', is_flag=True, help='Preview cleanup (no actual deletion)')
 def cleanup(keep_days: Optional[int], archive: bool, keep_months: int, dry_run: bool):
-    """清理过期记忆"""
+    """Clean up expired memories"""
     from clis.agent.memory_manager import MemoryManager
     
     manager = MemoryManager()
     
-    console.print("🧹 清理记忆...\n")
+    console.print("🧹 Cleaning up memories...\n")
     
-    # 执行清理
+    # Execute cleanup
     if dry_run:
-        console.print("[yellow]预览模式 (不会实际删除)[/yellow]\n")
+        console.print("[yellow]Preview mode (no actual deletion)[/yellow]\n")
     
     if keep_days:
-        # 归档旧任务
+        # Archive old tasks
         manager.archive_old_tasks(days=keep_days)
-        console.print(f"[green]✅ 已归档超过 {keep_days} 天的任务[/green]")
+        console.print(f"[green]✅ Tasks older than {keep_days} days archived[/green]")
     else:
-        # 使用配置
+        # Use configuration
         manager.cleanup()
-        console.print("[green]✅ 已执行自动清理[/green]")
+        console.print("[green]✅ Auto cleanup executed[/green]")
     
     if archive:
-        console.print("[yellow]归档清理功能开发中...[/yellow]")
+        console.print("[yellow]Archive cleanup feature is under development...[/yellow]")
 
 
 @memory_cli.command()
 @click.argument('task_id', required=False)
-@click.option('--output', '-o', help='输出文件路径')
+@click.option('--output', '-o', help='Output file path')
 @click.option('--format', type=click.Choice(['markdown', 'json', 'html']), 
-              default='markdown', help='导出格式')
-@click.option('--all', is_flag=True, help='导出所有任务')
+              default='markdown', help='Export format')
+@click.option('--all', is_flag=True, help='Export all tasks')
 def export(task_id: Optional[str], output: Optional[str], format: str, all: bool):
-    """导出任务为文档"""
+    """Export tasks as documents"""
     from clis.agent.memory_manager import MemoryManager
     
     manager = MemoryManager()
@@ -313,36 +313,36 @@ def export(task_id: Optional[str], output: Optional[str], format: str, all: bool
     if task_id:
         task_file = manager.get_task_file(task_id)
         if not task_file or not task_file.exists():
-            console.print(f"[red]❌ 任务 {task_id} 不存在[/red]")
+            console.print(f"[red]❌ Task {task_id} does not exist[/red]")
             return
         
-        # 读取内容
+        # Read content
         content = task_file.read_text(encoding='utf-8')
         
-        # 导出
+        # Export
         if output:
             output_path = Path(output)
             output_path.write_text(content, encoding='utf-8')
-            console.print(f"[green]✅ 已导出到 {output_path}[/green]")
+            console.print(f"[green]✅ Exported to {output_path}[/green]")
         else:
             console.print(content)
     
     elif all:
-        console.print("[yellow]批量导出功能开发中...[/yellow]")
+        console.print("[yellow]Batch export feature is under development...[/yellow]")
     
     else:
-        console.print("[red]请指定 task_id 或使用 --all[/red]")
+        console.print("[red]Please specify task_id or use --all[/red]")
 
 
 @memory_cli.command()
-@click.option('--verbose', '-v', is_flag=True, help='显示详细统计')
+@click.option('--verbose', '-v', is_flag=True, help='Show detailed statistics')
 def stats(verbose: bool):
-    """显示记忆统计信息"""
+    """Display memory statistics"""
     from clis.agent.memory_manager import MemoryManager
     
     manager = MemoryManager()
     
-    # 统计任务数量
+    # Count tasks
     status_counts = {}
     total_size = 0
     
@@ -350,15 +350,15 @@ def stats(verbose: bool):
         status = task_info['status']
         status_counts[status] = status_counts.get(status, 0) + 1
         
-        # 计算文件大小
+        # Calculate file size
         task_file = manager.get_task_file(task_id)
         if task_file and task_file.exists():
             total_size += task_file.stat().st_size
     
-    # 格式化大小
+    # Format size
     size_mb = total_size / (1024 * 1024)
     
-    # 显示统计
+    # Display statistics
     stats_text = f"""
 [bold cyan]Tasks:[/bold cyan]
   • Active: {status_counts.get('active', 0)}
@@ -381,7 +381,7 @@ def stats(verbose: bool):
     console.print(panel)
     
     if verbose:
-        console.print("\n[dim]详细统计功能开发中...[/dim]")
+        console.print("\n[dim]Detailed statistics feature is under development...[/dim]")
 
 
 @memory_cli.command()
@@ -389,13 +389,13 @@ def stats(verbose: bool):
 @click.argument('key', required=False)
 @click.argument('value', required=False)
 def config(action: str, key: Optional[str], value: Optional[str]):
-    """配置记忆管理"""
+    """Configure memory management"""
     from clis.agent.memory_manager import MemoryManager
     
     manager = MemoryManager()
     
     if action == 'show':
-        # 显示配置
+        # Show configuration
         config = manager.metadata['config']
         console.print("[bold cyan]Memory Configuration:[/bold cyan]\n")
         for k, v in config.items():
@@ -403,12 +403,12 @@ def config(action: str, key: Optional[str], value: Optional[str]):
     
     elif action == 'set':
         if not key or not value:
-            console.print("[red]请指定 key 和 value[/red]")
+            console.print("[red]Please specify key and value[/red]")
             return
         
-        # 设置配置
+        # Set configuration
         if key in manager.metadata['config']:
-            # 类型转换
+            # Type conversion
             old_value = manager.metadata['config'][key]
             if isinstance(old_value, bool):
                 value = value.lower() in ('true', '1', 'yes')
@@ -417,32 +417,32 @@ def config(action: str, key: Optional[str], value: Optional[str]):
             
             manager.metadata['config'][key] = value
             manager._save_metadata()
-            console.print(f"[green]✅ 已设置 {key} = {value}[/green]")
+            console.print(f"[green]✅ Set {key} = {value}[/green]")
         else:
-            console.print(f"[red]未知配置项: {key}[/red]")
+            console.print(f"[red]Unknown configuration item: {key}[/red]")
     
     elif action == 'reset':
-        # 重置配置
+        # Reset configuration
         manager.metadata['config'] = manager._default_config()
         manager._save_metadata()
-        console.print("[green]✅ 已重置为默认配置[/green]")
+        console.print("[green]✅ Reset to default configuration[/green]")
 
 
-# 快捷命令
+# Shortcut commands
 @memory_cli.command()
-@click.option('--limit', type=int, default=5, help='显示数量')
+@click.option('--limit', type=int, default=5, help='Number to display')
 def recent(limit: int):
-    """查看最近的任务"""
+    """View recent tasks"""
     from clis.agent.memory_manager import MemoryManager
     
     manager = MemoryManager()
     tasks = manager.list_tasks(limit=limit)
     
     if not tasks:
-        console.print("[yellow]没有任务记忆[/yellow]")
+        console.print("[yellow]No task memories[/yellow]")
         return
     
-    console.print(f"[bold cyan]📋 最近 {len(tasks)} 个任务:[/bold cyan]\n")
+    console.print(f"[bold cyan]📋 Recent {len(tasks)} tasks:[/bold cyan]\n")
     
     for task in tasks:
         status_icon = {
@@ -458,17 +458,17 @@ def recent(limit: int):
 
 @memory_cli.command()
 def current():
-    """查看当前活跃任务"""
+    """View current active tasks"""
     from clis.agent.memory_manager import MemoryManager, TaskStatus
     
     manager = MemoryManager()
     tasks = manager.list_tasks(status=TaskStatus.ACTIVE)
     
     if not tasks:
-        console.print("[yellow]没有活跃任务[/yellow]")
+        console.print("[yellow]No active tasks[/yellow]")
         return
     
-    console.print(f"[bold cyan]🔄 当前活跃任务 ({len(tasks)} 个):[/bold cyan]\n")
+    console.print(f"[bold cyan]🔄 Current active tasks ({len(tasks)}):[/bold cyan]\n")
     
     for task in tasks:
         console.print(f"  • [cyan]{task['id']}[/cyan]: {task['description']}")
@@ -476,14 +476,14 @@ def current():
 
 @memory_cli.command()
 def open():
-    """打开记忆目录"""
+    """Open memory directory"""
     from clis.agent.memory_manager import MemoryManager
     import subprocess
     import sys
     
     manager = MemoryManager()
     
-    # 根据操作系统打开文件管理器
+    # Open file manager based on OS
     if sys.platform == 'darwin':  # macOS
         subprocess.run(['open', str(manager.memory_dir)])
     elif sys.platform == 'win32':  # Windows
@@ -491,18 +491,18 @@ def open():
     else:  # Linux
         subprocess.run(['xdg-open', str(manager.memory_dir)])
     
-    console.print(f"[green]✅ 已打开目录: {manager.memory_dir}[/green]")
+    console.print(f"[green]✅ Directory opened: {manager.memory_dir}[/green]")
 
 
 @memory_cli.command()
 def tidy():
-    """快速清理 (归档 + 清理失败任务)"""
+    """Quick cleanup (archive + clean failed tasks)"""
     from clis.agent.memory_manager import MemoryManager
     
     manager = MemoryManager()
     
-    console.print("🧹 执行快速清理...\n")
+    console.print("🧹 Running quick cleanup...\n")
     
     manager.cleanup()
     
-    console.print("[green]✅ 清理完成![/green]")
+    console.print("[green]✅ Cleanup complete![/green]")

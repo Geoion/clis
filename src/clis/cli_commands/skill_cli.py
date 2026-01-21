@@ -9,13 +9,13 @@ import click
 
 @click.group(name="skill")
 def skill_cli():
-    """技能管理 (Skill management)"""
+    """Skill management"""
     pass
 
 
 @skill_cli.command(name="list")
 def list_skills() -> None:
-    """列出所有可用技能"""
+    """List all available skills"""
     from clis.output.formatter import OutputFormatter
     from clis.router import SkillRouter
     
@@ -38,7 +38,7 @@ def list_skills() -> None:
 @click.option("--auto", is_flag=True, help="Use LLM to auto-generate skill based on prompt")
 @click.option("--tools", multiple=True, help="Tools to include in the skill")
 def create_skill(name: str, auto: bool, tools: Tuple[str, ...]) -> None:
-    """创建新技能
+    """Create new skill
     
     Examples:
         clis skill create my-skill
@@ -64,7 +64,7 @@ def create_skill(name: str, auto: bool, tools: Tuple[str, ...]) -> None:
 @click.argument("name")
 @click.option("--editor", help="Editor to use (code, vim, nano, etc.)")
 def edit_skill(name: str, editor: Optional[str] = None) -> None:
-    """编辑技能文件"""
+    """Edit skill file"""
     import subprocess
     import os
     from clis.router import SkillRouter
@@ -94,7 +94,7 @@ def edit_skill(name: str, editor: Optional[str] = None) -> None:
 @skill_cli.command(name="validate")
 @click.argument("name")
 def validate_skill(name: str) -> None:
-    """验证技能格式"""
+    """Validate skill format"""
     from clis.router import SkillRouter
     from clis.output.formatter import OutputFormatter
     
@@ -116,7 +116,7 @@ def validate_skill(name: str) -> None:
 @click.argument("query", required=False)
 @click.option("--dry-run", is_flag=True, help="Show commands without executing")
 def test_skill(name: str, query: Optional[str], dry_run: bool) -> None:
-    """测试技能
+    """Test skill
     
     Examples:
         clis skill test docker-manager
@@ -152,7 +152,7 @@ def test_skill(name: str, query: Optional[str], dry_run: bool) -> None:
 @click.argument("source")
 @click.option("--with-deps", is_flag=True, help="Download skill dependencies")
 def install_skill(source: str, with_deps: bool) -> None:
-    """从 GitHub 或 URL 安装技能
+    """Install skill from GitHub or URL
     
     Examples:
         clis skill install username/repo

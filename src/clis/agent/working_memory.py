@@ -1,10 +1,10 @@
 """
-工作记忆模块 - 最近 5-10 步的结构化操作记录
+Working memory module - Structured operation records for recent 5-10 steps
 
-特点:
-- 轻量级,纯内存
-- 结构化,易于查询
-- 显式状态,减少推理
+Features:
+- Lightweight, pure in-memory
+- Structured, easy to query
+- Explicit state, less reasoning
 """
 
 from typing import List, Dict, Set
@@ -16,33 +16,33 @@ from collections import Counter
 @dataclass
 class WorkingMemory:
     """
-    工作记忆 - 最近 5-10 步的结构化操作记录
+    Working memory - Structured operation records for recent 5-10 steps
     
-    用于显式跟踪 Agent 的操作历史,帮助弱模型避免循环
+    Used to explicitly track Agent's operation history, helping weak models avoid loops
     """
     
-    # 操作记录 (保留顺序)
+    # Operation records (preserve order)
     files_read: List[str] = field(default_factory=list)
     files_written: List[str] = field(default_factory=list)
     commands_run: List[Dict] = field(default_factory=list)  # {cmd, time, success}
     
-    # 工具使用统计
+    # Tool usage statistics
     tools_used: Dict[str, int] = field(default_factory=dict)
     
-    # 显式状态
+    # Explicit state
     current_phase: str = "initialization"
     phase_progress: str = "0/0"
     
-    # 去重集合 (快速查询)
+    # Deduplication sets (fast lookup)
     _files_read_set: Set[str] = field(default_factory=set, init=False, repr=False)
     _files_written_set: Set[str] = field(default_factory=set, init=False, repr=False)
     
     def add_file_read(self, path: str) -> bool:
         """
-        记录文件读取
+        Record file read
         
         Args:
-            path: 文件路径
+            path: File path
             
         Returns:
             True if new, False if duplicate
@@ -52,18 +52,18 @@ class WorkingMemory:
             self.files_read.append(path)
             self._files_read_set.add(path)
         else:
-            # 即使是重复,也记录(用于检测循环)
+            # Even if duplicate, record (for loop detection)
             self.files_read.append(path)
         return is_new
     
     def add_file_written(self, path: str):
-        """记录文件写入"""
+        """Record file write"""
         if path not in self._files_written_set:
             self.files_written.append(path)
             self._files_written_set.add(path)
     
     def add_command(self, cmd: str, success: bool):
-        """记录命令执行"""
+        """Record command execution"""
         self.commands_run.append({
             'cmd': cmd,
             'time': datetime.now().isoformat(),
@@ -71,109 +71,109 @@ class WorkingMemory:
         })
     
     def increment_tool(self, tool_name: str):
-        """增加工具使用计数"""
+        """Increment tool usage count"""
         self.tools_used[tool_name] = self.tools_used.get(tool_name, 0) + 1
     
     def update_phase(self, phase: str, progress: str):
-        """更新当前阶段"""
+        """Update current phase"""
         self.current_phase = phase
         self.phase_progress = progress
     
     def to_prompt(self, max_items: int = 10) -> str:
         """
-        转换为弱模型友好的 prompt 文本
+        Convert to weak-model-friendly prompt text
         
-        设计原则:
-        - 使用 emoji 和树状结构 (视觉清晰)
-        - 显示数量统计 (让模型有"进度感")
-        - 高亮最近项目 (时间就近性)
-        - 明确警告重复操作
+        Design principles:
+        - Use emoji and tree structure (visual clarity)
+        - Show quantity statistics (give model "progress sense")
+        - Highlight recent items (temporal proximity)
+        - Clearly warn about repeated operations
         
         Args:
-            max_items: 最多显示的项目数
+            max_items: Maximum items to display
             
         Returns:
-            格式化的 prompt 文本
+            Formatted prompt text
         """
-        recent_files = self.files_read[-max_items:] if self.files_read else ["无"]
+        recent_files = self.files_read[-max_items:] if self.files_read else ["None"]
         files_summary = ", ".join(recent_files) if len(recent_files) <= 5 else \
-                       ", ".join(recent_files[:5]) + f" ... (共 {len(self.files_read)} 个)"
+                       ", ".join(recent_files[:5]) + f" ... ({len(self.files_read)} total)"
         
-        recent_written = self.files_written[-5:] if self.files_written else ["无"]
+        recent_written = self.files_written[-5:] if self.files_written else ["None"]
         written_summary = ", ".join(recent_written)
         
-        recent_cmds = [c['cmd'][:50] for c in self.commands_run[-3:]] if self.commands_run else ["无"]
+        recent_cmds = [c['cmd'][:50] for c in self.commands_run[-3:]] if self.commands_run else ["None"]
         cmd_summary = "\n   ".join(recent_cmds)
         
         return f"""
 ╭──────────────────────────────────────────────────────────────╮
-│                   📋 工作记忆 (WORKING MEMORY)                │
+│                   📋 WORKING MEMORY                           │
 ╰──────────────────────────────────────────────────────────────╯
 
-🎯 当前阶段: {self.current_phase} ({self.phase_progress})
+🎯 Current Phase: {self.current_phase} ({self.phase_progress})
 
-📂 已读文件 (共 {len(self.files_read)} 个):
+📂 Files Read ({len(self.files_read)} total):
    {files_summary}
 
-✏️  已写文件 (共 {len(self.files_written)} 个):
+✏️  Files Written ({len(self.files_written)} total):
    {written_summary}
 
-⚙️  已执行命令 (共 {len(self.commands_run)} 个):
+⚙️  Commands Executed ({len(self.commands_run)} total):
    {cmd_summary}
 
-📊 工具使用统计:
+📊 Tool Usage Statistics:
    {self._format_tool_stats()}
 
-⚠️  重要提醒:
-   • 如果你想读的文件已在"已读"列表 → 不要重复读取!
-   • 如果已读文件超过 10 个 → 应该开始分析而非继续收集
-   • 如果同一工具使用超过 5 次 → 可能陷入循环,改变策略!
+⚠️  Important Reminders:
+   • If file you want to read is in "Files Read" list → Don't repeat reading!
+   • If files read exceeds 10 → Should start analysis instead of continuing collection
+   • If same tool used more than 5 times → May be stuck in loop, change strategy!
 """
     
     def _format_tool_stats(self) -> str:
-        """格式化工具统计"""
+        """Format tool statistics"""
         if not self.tools_used:
-            return "   (暂无)"
+            return "   (None yet)"
         
         sorted_tools = sorted(self.tools_used.items(), key=lambda x: x[1], reverse=True)
         stats = []
         for tool, count in sorted_tools[:5]:
-            warning = " ⚠️ 过度使用!" if count > 5 else ""
-            stats.append(f"{tool}: {count}次{warning}")
+            warning = " ⚠️ Overused!" if count > 5 else ""
+            stats.append(f"{tool}: {count} times{warning}")
         return "\n   ".join(stats)
     
     def detect_loop(self) -> tuple[bool, str]:
         """
-        检测是否陷入循环
+        Detect if stuck in loop
         
         Returns:
             (is_loop, reason)
         """
-        # 规则 1: 单个文件读取超过 2 次
+        # Rule 1: Single file read more than 2 times
         file_counts = Counter(self.files_read)
         for file, count in file_counts.items():
             if count > 2:
-                return True, f"文件 '{file}' 已读取 {count} 次!"
+                return True, f"File '{file}' read {count} times!"
         
-        # 规则 2: 单个工具使用超过 10 次
+        # Rule 2: Single tool used more than 10 times
         for tool, count in self.tools_used.items():
             if count > 10:
-                return True, f"工具 '{tool}' 已使用 {count} 次!"
+                return True, f"Tool '{tool}' used {count} times!"
         
-        # 规则 3: 最近 5 次操作都是 read_file
+        # Rule 3: Last 5 operations all read_file
         if len(self.files_read) >= 5:
             recent = self.files_read[-5:]
-            if len(set(recent)) <= 2:  # 只在读 2 个文件来回切换
-                return True, f"最近 5 次操作都在读取文件: {set(recent)}"
+            if len(set(recent)) <= 2:  # Only switching between reading 2 files
+                return True, f"Last 5 operations all reading files: {set(recent)}"
         
         return False, ""
     
     def get_stats(self) -> Dict:
         """
-        获取统计信息
+        Get statistics
         
         Returns:
-            统计信息字典
+            Statistics dictionary
         """
         return {
             'files_read_count': len(self.files_read),
@@ -187,7 +187,7 @@ class WorkingMemory:
         }
     
     def clear(self):
-        """清空工作记忆"""
+        """Clear working memory"""
         self.files_read.clear()
         self.files_written.clear()
         self.commands_run.clear()
