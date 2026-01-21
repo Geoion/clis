@@ -132,6 +132,9 @@ class ToolExecutor:
             tools: List of available tools
         """
         self.tools = {tool.name: tool for tool in tools}
+        # Call history (for duplicate detection)
+        self.call_history: List[tuple] = []  # (tool_name, params_str, result)
+        self.max_history = 20
     
     def execute(self, tool_name: str, parameters: Dict[str, Any]) -> ToolResult:
         """
@@ -144,23 +147,96 @@ class ToolExecutor:
         Returns:
             ToolResult with execution result
         """
+        # ============ Force prevent duplicate calls ============
+        tool = self.tools.get(tool_name)
+        if tool and getattr(tool, 'is_readonly', False):
+            # Check if duplicate call
+            params_str = str(sorted(parameters.items()))
+            signature = (tool_name, params_str)
+            
+            # Count duplicates in last 5 calls
+            recent_5 = self.call_history[-5:]
+            duplicate_count = sum(1 for sig, _ in recent_5 if sig == signature)
+            
+            if duplicate_count >= 2:
+                # Third call, force return cached result
+                cached_result = None
+                for sig, result in reversed(self.call_history):
+                    if sig == signature:
+                        cached_result = result
+                        break
+                
+                if cached_result:
+                    warning_msg = f"""⛔ Force preventing duplicate call!
+
+Tool '{tool_name}' has been called {duplicate_count + 1} times (same parameters)
+
+🔄 Using cached result:
+{cached_result[:500]}
+
+💡 Please use the result above directly, don't repeat the call!"""
+                    
+                    return ToolResult(
+                        success=True,
+                        output=warning_msg,
+                        metadata={"forced_cache": True, "duplicate_count": duplicate_count + 1}
+                    )
+        
         if tool_name not in self.tools:
+            # Provide better error message
+            available_tools = list(self.tools.keys())
+            # Find similar tool names
+            similar = [t for t in available_tools if tool_name.lower() in t or t in tool_name.lower()]
+            
+            error_msg = f"Tool '{tool_name}' not found."
+            if similar:
+                error_msg += f"\n\n💡 Did you mean: {', '.join(similar[:3])}"
+            else:
+                error_msg += f"\n\n📋 Available tools: Run 'clis doctor' to see all tools"
+            
             return ToolResult(
                 success=False,
                 output="",
-                error=f"Tool '{tool_name}' not found"
+                error=error_msg
             )
         
         tool = self.tools[tool_name]
         
         try:
             result = tool.execute(**parameters)
+            
+            # Record call history (for caching)
+            if getattr(tool, 'is_readonly', False) and result.success:
+                params_str = str(sorted(parameters.items()))
+                signature = (tool_name, params_str)
+                self.call_history.append((signature, result.output))
+                
+                # Limit history size
+                if len(self.call_history) > self.max_history:
+                    self.call_history = self.call_history[-self.max_history:]
+            
             return result
-        except Exception as e:
+        except TypeError as e:
+            # Parameter error - provide detailed hint
+            from clis.utils.error_handler import ErrorMessageBuilder
+            
+            error_msg = ErrorMessageBuilder.build_tool_error(tool_name, e, parameters)
+            
             return ToolResult(
                 success=False,
                 output="",
-                error=f"Tool execution failed: {str(e)}"
+                error=error_msg
+            )
+        except Exception as e:
+            # Other errors - use enhanced error handling
+            from clis.utils.error_handler import ErrorMessageBuilder
+            
+            error_msg = ErrorMessageBuilder.build_tool_error(tool_name, e, parameters)
+            
+            return ToolResult(
+                success=False,
+                output="",
+                error=error_msg
             )
     
     def get_tool(self, tool_name: str) -> Optional[Tool]:
