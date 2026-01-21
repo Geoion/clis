@@ -1,9 +1,9 @@
 """
-两阶段 Agent - Plan-Execute 模式
+Two-Phase Agent - Plan-Execute mode
 
-灵感来自 Claude Code 和 Cursor Agent:
-- Phase 1: Planning（只读探索，生成计划）
-- Phase 2: Execution（按计划执行，严格控制）
+Inspired by Claude Code and Cursor Agent:
+- Phase 1: Planning (read-only exploration, generate plan)
+- Phase 2: Execution (execute according to plan, strict control)
 """
 
 from typing import Dict, Any, List, Optional, Generator
@@ -27,17 +27,17 @@ logger = get_logger(__name__)
 
 class TwoPhaseAgent:
     """
-    两阶段执行 Agent
+    Two-phase execution Agent
     
     Phase 1: Planning
-    - 只使用只读工具（~15个）
-    - 生成结构化计划
-    - 明确工作目录和依赖关系
+    - Use only read-only tools (~15)
+    - Generate structured plan
+    - Clarify working directory and dependencies
     
     Phase 2: Execution  
-    - 使用所有工具（~40个）
-    - 严格按计划执行
-    - 每步验证结果
+    - Use all tools (~40)
+    - Execute strictly according to plan
+    - Verify results at each step
     """
     
     def __init__(
@@ -46,20 +46,20 @@ class TwoPhaseAgent:
         tools: Optional[List[Tool]] = None
     ):
         """
-        初始化两阶段 Agent
+        Initialize two-phase Agent
         
         Args:
-            config_manager: 配置管理器
-            tools: 工具列表
+            config_manager: Configuration manager
+            tools: Tool list
         """
         self.config_manager = config_manager or ConfigManager()
         self.tools = tools or []
         self.llm_agent = Agent(self.config_manager)
         
-        # 规划器
+        # Planner
         self.planner = TaskPlanner(self.llm_agent, self.tools)
         
-        # ============ Memory System (与 InteractiveAgent 对齐) ============
+        # ============ Memory System (aligned with InteractiveAgent) ============
         # Working memory (in-memory)
         self.working_memory = WorkingMemory()
         
@@ -75,10 +75,10 @@ class TwoPhaseAgent:
         # Current task ID
         self.current_task_id: Optional[str] = None
         
-        # 工作目录管理器
+        # Working directory manager
         self.working_dir_manager = WorkingDirectoryManager()
         
-        # 执行 Agent（用于简单任务的回退）
+        # Execution Agent (for fallback on simple tasks)
         self.executor = InteractiveAgent(
             config_manager=self.config_manager,
             tools=self.tools
@@ -91,15 +91,15 @@ class TwoPhaseAgent:
         skip_planning: bool = False
     ) -> Generator[Dict[str, Any], None, None]:
         """
-        执行任务（两阶段模式）
+        Execute task (two-phase mode)
         
         Args:
-            query: 用户查询
-            auto_approve_plan: 自动批准计划（不需要用户审查）
-            skip_planning: 跳过规划阶段（直接执行）
+            query: User query
+            auto_approve_plan: Auto-approve plan (no user review needed)
+            skip_planning: Skip planning phase (execute directly)
             
         Yields:
-            执行步骤和结果
+            Execution steps and results
         """
         # ============ Initialize Memory System ============
         # Create task memory
@@ -130,7 +130,7 @@ class TwoPhaseAgent:
         # Record in episodic memory
         self.episodic_memory.update_step("Plan-Execute mode started", "in_progress")
         
-        # 评估复杂度
+        # Assess complexity
         complexity = self.planner.assess_complexity(query)
         
         self.episodic_memory.add_finding(f"Task complexity: {complexity}", category="assessment")
@@ -138,19 +138,19 @@ class TwoPhaseAgent:
         yield {
             "type": "complexity_assessment",
             "complexity": complexity,
-            "content": f"任务复杂度: {complexity}"
+            "content": f"Task complexity: {complexity}"
         }
         
-        # 简单任务：跳过规划，直接执行
+        # Simple tasks: skip planning, execute directly
         if complexity == "simple" or skip_planning:
             yield {
                 "type": "info",
-                "content": "任务简单，直接执行（跳过规划阶段）"
+                "content": "Task is simple, executing directly (skipping planning phase)"
             }
             
             self.episodic_memory.update_step("Fallback to ReAct mode (simple task)", "in_progress")
             
-            # 使用标准 InteractiveAgent
+            # Use standard InteractiveAgent
             for step in self.executor.execute(query):
                 yield step
             return
@@ -159,7 +159,7 @@ class TwoPhaseAgent:
         yield {
             "type": "phase",
             "phase": "planning",
-            "content": "📋 阶段 1: 制定执行计划（只读探索）..."
+            "content": "📋 Phase 1: Creating execution plan (read-only exploration)..."
         }
         
         self.episodic_memory.update_step("Phase 1: Planning", "in_progress")
@@ -178,7 +178,7 @@ class TwoPhaseAgent:
                     category="plan"
                 )
             
-            # 显示计划
+            # Display plan
             plan_md = plan.to_markdown()
             yield {
                 "type": "plan",
@@ -192,7 +192,7 @@ class TwoPhaseAgent:
             self.episodic_memory.update_step(f"Planning failed: {e}", "error")
             yield {
                 "type": "error",
-                "content": f"计划生成失败: {e}"
+                "content": f"Plan generation failed: {e}"
             }
             import traceback
             traceback.print_exc()
@@ -201,25 +201,25 @@ class TwoPhaseAgent:
             self._complete_task(success=False, summary=f"Planning failed: {e}")
             return
         
-        # 等待用户批准（除非自动批准）
+        # Wait for user approval (unless auto-approved)
         if not auto_approve_plan:
             yield {
                 "type": "plan_approval_needed",
-                "content": "请审查计划。批准后将执行。"
+                "content": "Please review the plan. Execution will proceed after approval."
             }
-            # 这里需要 CLI 处理用户输入
-            # 暂时假设批准
+            # CLI needs to handle user input here
+            # Assume approval for now
         
         # ============ Phase 2: Execution ============
         yield {
             "type": "phase",
             "phase": "execution",
-            "content": f"⚡ 阶段 2: 执行计划（{plan.total_steps} 个步骤）..."
+            "content": f"⚡ Phase 2: Executing plan ({plan.total_steps} steps)..."
         }
         
         self.episodic_memory.update_step("Phase 2: Execution", "in_progress")
         
-        # 设置工作目录
+        # Set working directory
         if plan.working_directory:
             self.working_dir_manager.change_directory(plan.working_directory)
             self.working_memory.add_known_fact(f"Working directory: {plan.working_directory}")
@@ -229,38 +229,38 @@ class TwoPhaseAgent:
             )
             yield {
                 "type": "directory_change",
-                "content": f"切换到工作目录: {plan.working_directory}"
+                "content": f"Switching to working directory: {plan.working_directory}"
             }
         
-        # 执行每个步骤
+        # Execute each step
         for step in plan.steps:
-            # 检查依赖
+            # Check dependencies
             if step.depends_on:
-                # TODO: 检查依赖步骤是否完成
+                # TODO: Check if dependent steps are completed
                 pass
             
-            # 切换到步骤特定的目录（如果有）
+            # Switch to step-specific directory (if any)
             if step.working_directory:
                 self.working_dir_manager.change_directory(step.working_directory)
             
-            # 执行步骤
+            # Execute step
             yield {
                 "type": "step_start",
                 "step_id": step.id,
-                "content": f"执行步骤 {step.id}/{plan.total_steps}: {step.description}"
+                "content": f"Executing step {step.id}/{plan.total_steps}: {step.description}"
             }
             
             self.episodic_memory.update_step(f"Step {step.id}: {step.description}", "in_progress")
             
-            # ============ 直接执行工具（不用 InteractiveAgent）============
-            # 这样可以避免 Agent 自由探索和重复操作
+            # ============ Execute tool directly (not using InteractiveAgent) ============
+            # This avoids Agent free exploration and duplicate operations
             try:
                 from clis.tools.base import ToolExecutor
                 
-                # 创建临时 ToolExecutor
+                # Create temporary ToolExecutor
                 tool_executor = ToolExecutor(self.tools)
                 
-                # 切换到步骤的工作目录（如果指定）
+                # Switch to step's working directory (if specified)
                 import os
                 old_dir = None
                 if step.working_directory and step.working_directory != str(self.working_dir_manager.current_dir):
@@ -271,17 +271,17 @@ class TwoPhaseAgent:
                         self.episodic_memory.update_step(f"Failed to change directory: {e}", "error")
                         yield {
                             "type": "error",
-                            "content": f"无法切换到目录 {step.working_directory}: {e}"
+                            "content": f"Failed to switch to directory {step.working_directory}: {e}"
                         }
                         continue
                 
                 # ============ Update Working Memory (Before Execution) ============
                 self.working_memory.increment_tool(step.tool)
                 
-                # 直接执行工具
+                # Execute tool directly
                 result = tool_executor.execute(step.tool, step.params)
                 
-                # 恢复目录
+                # Restore directory
                 if old_dir:
                     os.chdir(old_dir)
                 
@@ -324,7 +324,7 @@ class TwoPhaseAgent:
                         category="error"
                     )
                 
-                # 返回结果
+                # Return result
                 yield {
                     "type": "tool_call",
                     "tool": step.tool,
@@ -345,30 +345,30 @@ class TwoPhaseAgent:
                 self.episodic_memory.add_finding(f"Exception: {e}", category="error")
                 yield {
                     "type": "error",
-                    "content": f"步骤 {step.id} 执行失败: {e}"
+                    "content": f"Step {step.id} execution failed: {e}"
                 }
                 step_result = None
             
-            # 验证结果（如果有验证步骤）
+            # Verify result (if verification step exists)
             if step.verify_with and step_result and step_result.success:
                 yield {
                     "type": "verification_start",
-                    "content": f"🔍 验证: {step.verify_with}"
+                    "content": f"🔍 Verification: {step.verify_with}"
                 }
                 
-                # 执行验证逻辑
+                # Execute verification logic
                 verification_passed = self._verify_step_result(step, step_result)
                 
                 if verification_passed:
                     yield {
                         "type": "verification_result",
-                        "content": "✓ 验证通过",
+                        "content": "✓ Verification passed",
                         "success": True
                     }
                 else:
                     yield {
                         "type": "verification_result",
-                        "content": f"✗ 验证失败: 输出不符合预期\n期望: {step.verify_with}\n实际: {step_result.output[:200]}...",
+                        "content": f"✗ Verification failed: output does not match expectation\nExpected: {step.verify_with}\nActual: {step_result.output[:200]}...",
                         "success": False
                     }
         
@@ -377,24 +377,24 @@ class TwoPhaseAgent:
         summary = f"Plan-Execute completed: {plan.total_steps} steps executed"
         self._complete_task(success=True, summary=summary)
         
-        # 完成
+        # Complete
         yield {
             "type": "complete",
-            "content": f"所有 {plan.total_steps} 个步骤已完成",
+            "content": f"All {plan.total_steps} steps completed",
             "task_file": str(self.episodic_memory.get_file_path()),
             "stats": self.working_memory.get_stats()
         }
     
     def _verify_step_result(self, step: PlanStep, result) -> bool:
         """
-        验证步骤执行结果
+        Verify step execution result
         
         Args:
-            step: 计划步骤
-            result: 执行结果
+            step: Plan step
+            result: Execution result
             
         Returns:
-            验证是否通过
+            Whether verification passed
         """
         if not step.verify_with or not result or not result.output:
             return False
@@ -402,46 +402,46 @@ class TwoPhaseAgent:
         verify_text = step.verify_with.lower()
         output_text = result.output.lower()
         
-        # 简单的文本匹配验证
-        # 支持多种验证模式:
-        # 1. "Check if ... returns 'xxx'" - 检查输出包含特定文本
-        # 2. "Verify ... contains xxx" - 检查输出包含特定文本
-        # 3. "Ensure ... exits with code 0" - 检查退出码
+        # Simple text matching verification
+        # Supports multiple verification patterns:
+        # 1. "Check if ... returns 'xxx'" - Check if output contains specific text
+        # 2. "Verify ... contains xxx" - Check if output contains specific text
+        # 3. "Ensure ... exits with code 0" - Check exit code
         
-        # 提取期望的内容
+        # Extract expected content
         import re
         
-        # 模式 1: "returns 'xxx'" 或 "returns xxx"
+        # Pattern 1: "returns 'xxx'" or "returns xxx"
         match = re.search(r"returns?\s+['\"]([^'\"]+)['\"]", verify_text)
         if match:
             expected = match.group(1).lower()
             return expected in output_text
         
-        # 模式 2: "contains xxx"
+        # Pattern 2: "contains xxx"
         match = re.search(r"contains?\s+['\"]?([^'\"]+)['\"]?", verify_text)
         if match:
             expected = match.group(1).lower()
             return expected in output_text
         
-        # 模式 3: "exits with code 0" 或成功标志
+        # Pattern 3: "exits with code 0" or success indicator
         if "exit" in verify_text and "0" in verify_text:
             return result.success
         
         if "success" in verify_text:
             return result.success
         
-        # 默认: 检查执行是否成功
+        # Default: Check if execution succeeded
         return result.success
     
     def _format_similar_tasks(self, similar_tasks) -> str:
         """
-        格式化相似任务为文本
+        Format similar tasks as text
         
         Args:
-            similar_tasks: 相似任务列表 (List[Tuple[task_id, similarity, description]])
+            similar_tasks: List of similar tasks (List[Tuple[task_id, similarity, description]])
             
         Returns:
-            格式化的文本
+            Formatted text
         """
         if not similar_tasks:
             return ""
