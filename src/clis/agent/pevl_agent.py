@@ -1,10 +1,10 @@
 """
 PEVL Agent - Plan-Execute-Verify Loop with Self-Healing
 
-混合模型架构:
-- Phase 0: Task Analysis (R1) - 一次性
+Hybrid model architecture:
+- Phase 0: Task Analysis (R1) - one-time
 - Phase 1-3 Loop: Plan (R1) → Execute (Chat) → Verify (R1)
-- 自我修复: 失败后智能重规划,最多3轮
+- Self-healing: Auto-replan on failure, max 3 rounds
 """
 
 from typing import Dict, Any, List, Optional, Generator
@@ -20,7 +20,10 @@ from clis.agent.working_memory import WorkingMemory
 from clis.agent.episodic_memory import EpisodicMemory
 from clis.agent.memory_manager import MemoryManager
 from clis.agent.vector_search import VectorSearch
+from clis.agent.context_manager import ContextManager
+from clis.agent.state_machine import TaskStateMachine, TaskState
 from clis.config import ConfigManager
+from clis.safety.risk_scorer import RiskScorer
 from clis.tools.base import Tool, ToolExecutor, ToolResult
 from clis.utils.logger import get_logger
 
@@ -29,7 +32,7 @@ logger = get_logger(__name__)
 
 @dataclass
 class TaskAnalysis:
-    """任务分析结果"""
+    """Task analysis result"""
     complexity: str  # trivial | simple | medium | complex
     uncertainty: str  # low | medium | high
     task_type: str
@@ -41,7 +44,7 @@ class TaskAnalysis:
 
 @dataclass
 class Verification:
-    """验证结果"""
+    """Verification result"""
     success: bool
     failed_steps: List[int]
     diagnosis: Dict[str, Any]
@@ -52,7 +55,7 @@ class Verification:
 
 @dataclass
 class ReplanDecision:
-    """重规划决策"""
+    """Replan decision"""
     decision: bool
     confidence: float
     reasoning: str
@@ -63,11 +66,11 @@ class PEVLAgent:
     """
     Plan-Execute-Verify Loop Agent
     
-    特点:
-    - 混合模型: R1 (规划/验证) + Chat/Qwen (执行)
-    - 自我修复: 失败后自动重规划
-    - 智能选择: R1 自动判断模式
-    - 循环控制: 最多3轮
+    Features:
+    - Hybrid model: R1 (planning/verification) + Chat/Qwen (execution)
+    - Self-healing: Auto-replan on failure
+    - Smart selection: R1 auto-determines mode
+    - Loop control: Max 3 rounds
     """
     
     def __init__(
@@ -77,19 +80,19 @@ class PEVLAgent:
         max_rounds: int = 3
     ):
         """
-        初始化 PEVL Agent
+        Initialize PEVL Agent
         
         Args:
-            config_manager: 配置管理器
-            tools: 工具列表
-            max_rounds: 最大循环轮数
+            config_manager: Configuration manager
+            tools: Tool list
+            max_rounds: Maximum number of rounds
         """
         self.config_manager = config_manager or ConfigManager()
         self.tools = tools or []
         self.max_rounds = max_rounds
         
-        # LLM Agents - 稍后会根据任务分析结果配置不同模型
-        # 默认使用同一个 agent
+        # LLM Agents - Will configure different models based on task analysis
+        # Default to same agent
         self.analyzer_agent = Agent(self.config_manager)  # R1 for analysis
         self.planner_agent = Agent(self.config_manager)   # R1 for planning
         self.executor_agent = Agent(self.config_manager)  # Chat for execution
@@ -98,31 +101,45 @@ class PEVLAgent:
         # Tool executor
         self.tool_executor = ToolExecutor(self.tools)
         
-        # Memory System
+        # ============ Memory System (fully aligned with ReAct) ============
         self.working_memory = WorkingMemory()
         self.episodic_memory: Optional[EpisodicMemory] = None
         self.memory_manager = MemoryManager()
         self.vector_search = VectorSearch()
         self.working_dir_manager = WorkingDirectoryManager()
         
+        # ============ Smart Components (aligned with ReAct) ============
+        # Context Manager - Smart context compression
+        self.context_manager = ContextManager(self.config_manager)
+        
+        # State Machine - Loop and timeout detection
+        # Configured for larger iterations since PEVL has round control
+        self.state_machine = TaskStateMachine(max_iterations=max_rounds * 10)
+        
+        # Risk Scorer - Risk assessment
+        self.risk_scorer = RiskScorer(self.config_manager)
+        
         # Current task tracking
         self.current_task_id: Optional[str] = None
-        self.total_cost: float = 0.0  # 累计成本追踪
+        self.total_cost: float = 0.0  # Accumulated cost tracking
+        self.iteration_count: int = 0  # Total iteration count (for StateMachine)
     
     def execute(
         self,
         query: str,
-        user_mode_override: Optional[str] = None
+        user_mode_override: Optional[str] = None,
+        stream_thinking: bool = False
     ) -> Generator[Dict[str, Any], None, None]:
         """
-        执行任务 (PEVL 模式)
+        Execute task (PEVL mode)
         
         Args:
-            query: 用户查询
-            user_mode_override: 用户手动指定模式 (覆盖 R1 判断)
+            query: User query
+            user_mode_override: User manual mode override (overrides R1 judgment)
+            stream_thinking: Whether to stream thinking process (debug mode)
             
         Yields:
-            执行步骤和结果
+            Execution steps and results
         """
         # ============ Initialize Memory System ============
         self.current_task_id = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -133,19 +150,51 @@ class PEVLAgent:
         
         logger.info(f"[PEVL] Task memory created: {task_file}")
         
-        # ============ Phase 0: Task Analysis (R1, 一次性) ============
+        # ============ Search for Similar Historical Tasks ============
+        similar_tasks_text = ""
+        try:
+            similar_tasks = self.vector_search.search_similar_tasks(query, top_k=3)
+            if similar_tasks:
+                logger.info(f"Found {len(similar_tasks)} similar historical tasks")
+                self.episodic_memory.add_finding(
+                    f"Found {len(similar_tasks)} similar historical tasks",
+                    category="reference"
+                )
+                # TODO: Format historical tasks for analysis
+        except Exception as e:
+            logger.warning(f"Failed to search similar tasks: {e}")
+        
+        # ============ Phase 0: Task Analysis (R1, one-time) ============
         if not user_mode_override or user_mode_override == "auto":
             yield {
                 "type": "phase",
                 "phase": "analysis",
-                "content": "📊 Phase 0: 任务分析与模式选择 (DeepSeek-R1)..."
+                "content": "Phase 0: Task Analysis & Mode Selection (DeepSeek-R1)..."
             }
             
-            analysis = self._phase0_analysis(query)
+            # Stream thinking process
+            if stream_thinking:
+                yield {"type": "thinking_start", "content": "R1 analyzing task in depth..."}
+                
+                # Build prompt
+                prompt = self._build_analysis_prompt(query)
+                
+                # Stream generation
+                analysis_result = ""
+                for chunk in self.analyzer_agent.generate_stream(prompt):
+                    analysis_result += chunk
+                    yield {"type": "thinking_chunk", "content": chunk}
+                
+                yield {"type": "thinking_end"}
+                
+                # Parse result
+                analysis = self._parse_task_analysis(analysis_result, query)
+            else:
+                analysis = self._phase0_analysis(query)
             
             yield {
                 "type": "analysis_result",
-                "content": f"复杂度: {analysis.complexity}, 不确定性: {analysis.uncertainty}, 推荐模式: {analysis.recommended_mode}",
+                "content": f"Complexity: {analysis.complexity}, Uncertainty: {analysis.uncertainty}, Mode: {analysis.recommended_mode}",
                 "analysis": analysis
             }
             
@@ -154,43 +203,60 @@ class PEVLAgent:
                 category="analysis"
             )
             
-            # 根据分析结果选择模式
+            # Select mode based on analysis result
             if analysis.recommended_mode == "direct":
-                # 极简单任务,直接执行
+                # Very simple task, execute directly
                 yield from self._direct_execute(query)
                 return
             elif analysis.recommended_mode == "fast":
-                # 简单确定性任务,快速 Plan-Execute
-                yield from self._fast_plan_execute(query)
+                # Simple deterministic task, fast Plan-Execute
+                yield from self._fast_plan_execute(query, stream_thinking=stream_thinking)
                 return
-            # 否则进入 PEVL 循环
+            # Otherwise enter PEVL loop
         else:
-            # 用户手动指定,跳过分析
+            # User manually specified mode, skip analysis
             analysis = None
+            
+            # Route to corresponding mode
+            if user_mode_override == "direct":
+                yield from self._direct_execute(query)
+                return
+            elif user_mode_override == "fast":
+                yield from self._fast_plan_execute(query, stream_thinking=stream_thinking)
+                return
+            elif user_mode_override == "explore":
+                # TODO: Implement explore mode or fallback to ReAct
+                logger.warning("Explore mode not yet implemented in PEVL, using hybrid PEVL")
+            # Otherwise continue to full PEVL loop (hybrid mode)
         
-        # ============ PEVL Loop (最多3轮) ============
-        context = []  # 累积上下文 (失败信息)
+        # ============ PEVL Loop (max 3 rounds) ============
+        context = []  # Accumulated context (failure info)
         
         for round_num in range(1, self.max_rounds + 1):
-            yield {
-                "type": "round_start",
-                "round": round_num,
-                "content": f"{'='*60}\n🔄 Round {round_num}/{self.max_rounds}\n{'='*60}"
-            }
-            
+            # Internal round tracking (no UI display)
             self.episodic_memory.update_step(f"Round {round_num} started", "in_progress")
+            self.episodic_memory.update_progress(
+                f"round_{round_num}",
+                f"Round {round_num}/{self.max_rounds}"
+            )
             
-            # Phase 1: 规划 (R1)
+            # Phase 1: Planning (R1)
             yield {
                 "type": "phase",
                 "phase": "planning",
-                "content": f"📋 Phase 1: 深度规划 (DeepSeek-R1)..."
+                "content": f"Phase 1: Deep Planning (DeepSeek-R1)..."
             }
             
-            plan = self._phase1_planning(query, context, round_num)
+            # Stream planning thinking
+            plan = None
+            for event in self._phase1_planning(query, context, round_num, stream_thinking=stream_thinking):
+                if isinstance(event, dict):
+                    yield event
+                else:
+                    plan = event
             
             if not plan or plan.total_steps == 0:
-                yield {"type": "error", "content": "规划失败: 未生成有效计划"}
+                yield {"type": "error", "content": "Planning failed: No valid plan generated"}
                 break
             
             yield {
@@ -204,166 +270,195 @@ class PEVLAgent:
                 category="plan"
             )
             
-            # Phase 2: 执行 (Chat)
+            # Phase 2: Execution (Chat)
             yield {
                 "type": "phase",
                 "phase": "execution",
-                "content": f"⚡ Phase 2: 引导式执行 (Qwen/Chat)..."
+                "content": f"Phase 2: Guided Execution (Qwen/Chat)..."
             }
             
             results = yield from self._phase2_execution(plan)
             
-            # Phase 3: 验证 (R1)
+            # ============ OPTIMIZATION: Check if execution failed ============
+            has_failure = any(not r.get('success', False) for r in results)
+            
+            if has_failure:
+                # Skip verification, extract failure info and replan directly
+                if round_num < self.max_rounds:
+                    failed_steps = [r for r in results if not r.get('success', False)]
+                    failure_info = {
+                        "has_failures": True,
+                        "failed_steps": [r.get('tool', 'unknown') for r in failed_steps],
+                        "error_messages": [r.get('output', '')[:200] for r in failed_steps],
+                        "root_cause": failed_steps[-1].get('output', 'Unknown error')[:300] if failed_steps else "Unknown"
+                    }
+                    
+                    yield {
+                        "type": "execution_failed",
+                        "content": f"🔄 Adjusting plan based on the issue..."
+                    }
+                    
+                    # Add failure info to context
+                    context.append({
+                        "round": round_num,
+                        "plan": plan,
+                        "results": results,
+                        "failure_diagnosis": failure_info,
+                        "suggested_changes": []
+                    })
+                    
+                    self.episodic_memory.add_finding(
+                        f"Round {round_num} execution failed: {failure_info['root_cause'][:100]}",
+                        category="error"
+                    )
+                    
+                    continue  # Next round
+                else:
+                    # Reached max rounds
+                    yield {
+                        "type": "error",
+                        "content": f"Execution failed in final round {round_num}"
+                    }
+                    break
+            
+            # All steps succeeded, do quick verification
             yield {
                 "type": "phase",
                 "phase": "verification",
-                "content": f"🔍 Phase 3: 深度验证 (DeepSeek-R1)..."
+                "content": f"Quick Verification..."
             }
             
-            verification = self._phase3_verification(plan, results)
-            
-            yield {
-                "type": "verification_result",
-                "content": f"验证结果: {'✅ 成功' if verification.success else '❌ 失败'}",
-                "verification": verification
-            }
+            # Simple verification without streaming
+            verification = None
+            for event in self._phase3_verification(plan, results, stream_thinking=False):
+                if isinstance(event, dict):
+                    yield event
+                else:
+                    verification = event
             
             if verification.success:
-                # 成功完成
+                # Successfully completed - Generate intelligent summary
+                yield {
+                    "type": "verification_result",
+                    "content": f"✓ Task goal achieved",
+                    "verification": verification
+                }
+                
+                summary_text = self._generate_completion_summary(query, plan, results)
+                
                 self.episodic_memory.update_step(f"Task completed in round {round_num}", "done")
                 self._complete_task(success=True, summary=f"Completed in {round_num} rounds")
                 
                 yield {
                     "type": "complete",
-                    "content": f"✅ 任务完成 (第 {round_num} 轮成功)",
+                    "content": f"Task completed in Round {round_num}",
                     "rounds": round_num,
                     "task_file": str(self.episodic_memory.get_file_path()),
-                    "stats": self.working_memory.get_stats()
+                    "stats": self.working_memory.get_stats(),
+                    "summary": summary_text
                 }
                 return
             
-            # 失败,判断是否重规划
+            # Verification failed - treat as execution failure, continue to next round
             if round_num < self.max_rounds:
-                yield {
-                    "type": "phase",
-                    "phase": "replan_decision",
-                    "content": "🤔 Phase 3.5: 失败诊断与重规划决策 (DeepSeek-R1)..."
+                # Extract failure info from verification
+                failure_info = {
+                    "has_failures": False,
+                    "verification_failed": True,
+                    "root_cause": verification.diagnosis.get('root_cause', 'Task goal not achieved') if hasattr(verification, 'diagnosis') and verification.diagnosis else 'Task goal not achieved',
+                    "failed_steps": verification.failed_steps if hasattr(verification, 'failed_steps') else []
                 }
                 
-                replan_decision = self._should_replan(verification, round_num, context)
-                
                 yield {
-                    "type": "replan_decision",
-                    "content": f"重规划决策: {'是' if replan_decision.decision else '否'} (信心: {replan_decision.confidence:.0%})",
-                    "decision": replan_decision
+                    "type": "execution_failed",
+                    "content": f"🔄 Task goal not achieved, adjusting plan..."
                 }
                 
-                if replan_decision.decision:
-                    # 添加失败信息到上下文
-                    context.append({
-                        "round": round_num,
-                        "plan": plan,
-                        "results": results,
-                        "failure_diagnosis": verification.diagnosis,
-                        "suggested_changes": replan_decision.suggested_changes
-                    })
-                    
-                    yield {
-                        "type": "replan",
-                        "content": f"🔄 开始第 {round_num + 1} 轮重规划...\n理由: {replan_decision.reasoning}"
-                    }
-                    
-                    self.episodic_memory.add_finding(
-                        f"Round {round_num} failed, replanning: {replan_decision.reasoning}",
-                        category="replan"
-                    )
-                    
-                    continue  # 下一轮
-                else:
-                    # R1 判断无法修复
-                    yield {
-                        "type": "error",
-                        "content": f"❌ 任务失败,R1 判断无法通过重规划修复\n理由: {replan_decision.reasoning}"
-                    }
-                    break
+                # Add failure info to context for next round
+                context.append({
+                    "round": round_num,
+                    "plan": plan,
+                    "results": results,
+                    "failure_diagnosis": failure_info,
+                    "suggested_changes": []
+                })
+                
+                self.episodic_memory.add_finding(
+                    f"Round {round_num} verification failed: {failure_info['root_cause'][:100]}",
+                    category="error"
+                )
+                
+                continue  # Next round
             else:
-                # 达到最大轮数
+                # Reached maximum rounds
                 yield {
                     "type": "error",
-                    "content": f"❌ 达到最大轮数 ({self.max_rounds}),任务失败"
+                    "content": f"Task goal not achieved after {round_num} rounds"
                 }
                 break
         
-        # 失败完成
+        # Failed completion
         self.episodic_memory.update_step("Task failed after retries", "error")
         self._complete_task(success=False, summary=f"Failed after {round_num} rounds")
         
         yield {
             "type": "failed",
-            "content": f"❌ 任务失败 (尝试了 {round_num} 轮)",
+            "content": f"Task failed after {round_num} rounds",
             "rounds": round_num,
             "task_file": str(self.episodic_memory.get_file_path()),
             "stats": self.working_memory.get_stats()
         }
     
     def _phase0_analysis(self, query: str) -> TaskAnalysis:
-        """
-        Phase 0: 使用 R1 分析任务特征并推荐模式
-        
-        Args:
-            query: 用户查询
-            
-        Returns:
-            TaskAnalysis 对象
-        """
-        prompt = f"""分析这个任务并选择最优执行模式。
+        """Phase 0: Use R1 to analyze task and select mode"""
+        prompt = f"""Analyze this task and select the optimal execution mode.
 
-任务: {query}
+Task: {query}
 
-请深度分析:
+Please perform deep analysis:
 
-1. 复杂度评估
-   - 预计步骤数: ?
-   - 涉及的技术栈: ?
-   - 是否有子任务: ?
+1. Complexity Assessment
+   - Estimated steps: ?
+   - Technology stack involved: ?
+   - Has subtasks: ?
    
-2. 不确定性评估  
-   - 环境依赖: (端口、权限、路径、版本等)
-   - 可能的错误点: ?
-   - 需要验证的关键点: ?
+2. Uncertainty Assessment  
+   - Environment dependencies: (ports, permissions, paths, versions, etc.)
+   - Possible error points: ?
+   - Key verification points: ?
 
-3. 任务类型识别
-   - 类别: 文件操作 | 代码生成 | 服务部署 | Git操作 | 信息探索 | 其他
-   - 是否需要创造性: ?
-   - 是否有标准流程: ?
+3. Task Type Identification
+   - Category: file_ops | code_gen | deployment | git | exploration | other
+   - Requires creativity: ?
+   - Has standard process: ?
 
-4. 模式推荐
+4. Mode Recommendation
 
-基于以上分析,从以下选项中推荐最优方案:
+Based on the above analysis, recommend the optimal solution from the following options:
 
-**Option A: Direct Execute** (1次 Chat 调用)
-  - 适用: 单步任务,极其简单,无依赖
-  - 成本: 低, 速度: 极快
-  - 示例: "创建一个文件", "读取文件内容"
+**Option A: Direct Execute** (1 Chat call)
+  - Suitable for: Single-step task, extremely simple, no dependencies
+  - Cost: Low, Speed: Very fast
+  - Examples: "Create a file", "Read file content"
   
-**Option B: Fast Plan-Execute** (Chat 规划+盲目执行)  
-  - 适用: 2-3步,确定性强,无环境依赖
-  - 成本: 低, 速度: 快
-  - 示例: "创建项目结构", "简单 Git 提交"
+**Option B: Fast Plan-Execute** (Chat planning + blind execution)  
+  - Suitable for: 2-3 steps, highly deterministic, no environment dependencies
+  - Cost: Low, Speed: Fast
+  - Examples: "Create project structure", "Simple Git commit"
   
-**Option C: Hybrid PEVL** (R1 规划 + Chat 执行 + R1 验证)
-  - 适用: 3-6步,有不确定性或验证需求
-  - 成本: 中, 速度: 中, 质量: 高
-  - 示例: "部署 Flask 服务", "Docker 容器化"
+**Option C: Hybrid PEVL** (R1 planning + Chat execution + R1 verification)
+  - Suitable for: 3-6 steps, has uncertainty or verification requirements
+  - Cost: Medium, Speed: Medium, Quality: High
+  - Examples: "Deploy Flask service", "Docker containerization"
   
-**Option D: Explore ReAct** (Chat 自由探索)
-  - 适用: 探索性,信息收集,目标不明确
-  - 成本: 中, 速度: 慢, 灵活: 高
-  - 示例: "分析这个项目", "调查为什么失败"
+**Option D: Explore ReAct** (Chat free exploration)
+  - Suitable for: Exploratory, information gathering, unclear goals
+  - Cost: Medium, Speed: Slow, Flexibility: High
+  - Examples: "Analyze this project", "Investigate why failed"
 
-请选择最优方案并充分说明理由。
+Please select the optimal solution and fully explain the reasoning.
 
-返回 JSON 格式:
+Return JSON format:
 ```json
 {{
   "complexity": "trivial|simple|medium|complex",
@@ -371,7 +466,7 @@ class PEVLAgent:
   "task_type": "file_ops|code_gen|deployment|git|explore|other",
   "estimated_steps": 3,
   "recommended_mode": "direct|fast|hybrid|explore",
-  "reasoning": "详细推理过程...",
+  "reasoning": "Detailed reasoning process...",
   "model_config": {{
     "planner": "deepseek-r1|deepseek-chat",
     "executor": "qwen-2.5-coder|deepseek-chat",
@@ -384,7 +479,7 @@ class PEVLAgent:
         try:
             response = self.analyzer_agent.generate(prompt)
             
-            # 解析 JSON
+            # Parse JSON
             import re
             json_match = re.search(r'```json\s*\n(.*?)\n```', response, re.DOTALL)
             if not json_match:
@@ -408,7 +503,7 @@ class PEVLAgent:
                 )
         except Exception as e:
             logger.error(f"Task analysis failed: {e}")
-            # 降级到默认配置
+            # Fallback to default config
             return TaskAnalysis(
                 complexity='medium',
                 uncertainty='medium',
@@ -427,234 +522,328 @@ class PEVLAgent:
         self,
         query: str,
         context: List[Dict[str, Any]],
-        round_num: int
-    ) -> Optional[ExecutionPlan]:
+        round_num: int,
+        stream_thinking: bool = False
+    ) -> Generator[Optional[ExecutionPlan], None, None]:
         """
-        Phase 1: 使用 R1 深度规划
+        Phase 1: Deep planning using R1
         
         Args:
-            query: 原始查询
-            context: 之前轮次的失败信息
-            round_num: 当前轮数
+            query: Original query
+            context: Failure information from previous rounds
+            round_num: Current round number
+            stream_thinking: Whether to stream thinking process
             
-        Returns:
-            ExecutionPlan 对象
+        Yields:
+            ExecutionPlan object (via final yield/return)
         """
-        # 构建规划提示词
+        # Build planning prompt
         context_text = ""
         if context:
-            context_text = "\n\n【重要】之前轮次的失败信息:\n\n"
+            context_text = "\n\n[IMPORTANT] Failure information from previous rounds:\n\n"
             for ctx in context:
-                context_text += f"Round {ctx['round']} 失败:\n"
-                context_text += f"  原因: {ctx['failure_diagnosis'].get('root_cause', 'unknown')}\n"
-                context_text += f"  建议: {', '.join(ctx['suggested_changes'])}\n\n"
-            context_text += "请根据这些失败经验调整计划,避免重复错误!\n"
+                context_text += f"Round {ctx['round']} failed:\n"
+                context_text += f"  Reason: {ctx['failure_diagnosis'].get('root_cause', 'unknown')}\n"
+                context_text += f"  Suggestions: {', '.join(ctx['suggested_changes'])}\n\n"
+            context_text += "Please adjust the plan based on these failures to avoid repeating mistakes!\n"
         
-        prompt = f"""你是任务规划专家。请为以下任务生成详细执行计划。
+        prompt = f"""You are a task planning expert. Please generate a detailed execution plan for the following task.
 
-任务: {query}
+Task: {query}
 
-当前是第 {round_num} 轮规划。
+This is round {round_num} of planning.
 {context_text}
 
-请进行深度分析和规划:
+Please perform deep analysis and planning:
 
-## 1. 任务分解
-将任务分解为 3-5 个清晰的步骤,每步都有:
-- 明确的目标 (goal)
-- 成功标准 (success_criteria)
-- 可能的风险 (risks)
-- 失败应对策略 (mitigation)
+## 1. Task Decomposition
+Break down the task into 3-5 clear steps, each with:
+- Clear goal
+- Success criteria
+- Possible risks
+- Mitigation strategy
 
-## 2. 工具选择
-为每步选择合适的工具和参数
+## 2. Tool Selection
+Select appropriate tools and parameters for each step
 
-可用工具: {', '.join([t.name for t in self.tools[:20]])}...
+Available tools and their parameters:
+{self._get_tool_descriptions(max_tools=20)}
 
-## 3. 依赖分析
-- 步骤之间的依赖关系
-- 需要的工作目录
+**CRITICAL**: Use EXACT parameter names:
+- edit_file: path, old_content, new_content (NOT file_path, NOT content)
+- write_file: path, content (NOT file_path)
+- read_file: path (NOT file_path)
+- execute_command: command (NOT cmd)
 
-## 4. 验证策略
-- 每步如何验证成功
-- 整体任务如何判断完成
+## 3. Dependency Analysis
+- Dependencies between steps
+- Required working directory
 
-输出 JSON:
+## 4. Verification Strategy
+- How to verify each step's success
+- How to determine overall task completion
+
+Output JSON:
 ```json
 {{
   "working_directory": "/path/to/work",
   "steps": [
     {{
       "id": 1,
-      "goal": "步骤目标描述",
-      "success_criteria": "成功的判断标准",
-      "tool": "工具名",
+      "goal": "Step goal description",
+      "success_criteria": "Success criteria",
+      "tool": "tool_name",
       "params": {{"param1": "value1"}},
-      "risks": ["风险1", "风险2"],
-      "mitigation": "应对策略",
+      "risks": ["risk1", "risk2"],
+      "mitigation": "Mitigation strategy",
       "estimated_risk": "low|medium|high"
     }}
   ],
-  "final_verification": "如何验证整体任务完成",
-  "risks": ["整体风险1", "整体风险2"]
+  "final_verification": "How to verify overall task completion",
+  "risks": ["overall_risk1", "overall_risk2"]
 }}
 ```
 """
         
         try:
-            response = self.planner_agent.generate(prompt)
+            # Stream thinking if enabled
+            if stream_thinking:
+                yield {"type": "thinking_start", "content": "R1 planning in depth..."}
+                
+                response = ""
+                for chunk in self.planner_agent.generate_stream(prompt):
+                    response += chunk
+                    yield {"type": "thinking_chunk", "content": chunk}
+                
+                yield {"type": "thinking_end", "content": ""}
+            else:
+                response = self.planner_agent.generate(prompt)
+            
             logger.debug(f"Planning response received, length: {len(response)}")
             
-            # 解析计划
+            # Parse plan
             plan = self._parse_plan_response(response, query)
             
             if plan:
                 logger.info(f"[PEVL] Round {round_num} plan generated: {plan.total_steps} steps")
             
-            return plan
+            yield plan  # Yield the final result
             
         except Exception as e:
             logger.error(f"Planning failed in round {round_num}: {e}")
-            return None
+            yield None  # Yield None on error
     
     def _phase2_execution(
         self,
         plan: ExecutionPlan
     ) -> Generator[List[Dict[str, Any]], None, None]:
         """
-        Phase 2: 使用 Chat 引导式执行
+        Phase 2: Guided execution using Chat
         
         Args:
-            plan: 执行计划
+            plan: Execution plan
             
         Yields:
-            执行过程事件
+            Execution process events
             
         Returns:
-            执行结果列表
+            List of execution results
         """
         results = []
         
-        # 设置工作目录
+        # Set working directory
         if plan.working_directory:
             self.working_dir_manager.change_directory(plan.working_directory)
         
-        # 执行每个步骤
+        # Execute each step
         for step in plan.steps:
+            self.iteration_count += 1
+            
+            # ============ State Machine Detection ============
+            state_advice = self.state_machine.detect_state(self.iteration_count, self.working_memory)
+            
+            if state_advice.is_urgent:
+                logger.warning(f"[PEVL] Urgent state: {state_advice.message}")
+                yield {
+                    "type": "warning",
+                    "content": f"Warning: {state_advice.message}"
+                }
+                
+                # If severe loop detected, end this round early
+                if state_advice.state == TaskState.STUCK:
+                    logger.error(f"[PEVL] Loop detected in Phase 2, ending this round")
+                    yield {
+                        "type": "error",
+                        "content": "Loop detected, ending current round"
+                    }
+                    break
+            
+            # ============ Risk Scoring ============
+            tool_name = step.tool
+            tool_params = step.params
+            
+            risk_score = self.risk_scorer.score_tool_operation(tool_name, tool_params)
+            
+            if risk_score > 80:
+                logger.warning(f"[PEVL] High risk operation: {tool_name} (score: {risk_score})")
+                yield {
+                    "type": "warning",
+                    "content": f"Warning: High risk operation: {tool_name} (risk score: {risk_score})"
+                }
+            
             yield {
                 "type": "step_start",
                 "step_id": step.id,
-                "content": f"▶ 步骤 {step.id}/{plan.total_steps}: {step.description}"
+                "content": f"▶ Step {step.id}/{plan.total_steps}: {step.description}",
+                "tool": step.tool,
+                "params": step.params
             }
             
-            # 执行步骤 (带重试)
+            # Execute step (with retry)
             step_result = self._execute_step_with_chat(step)
             results.append(step_result)
+            
+            # Add debug info
+            logger.debug(f"[PEVL] Step {step.id} result: success={step_result.get('success')}, tool={step_result.get('tool')}")
+            
+            # ============ Simplified output display ============
+            output = step_result.get('output', '')
+            success = step_result.get('success', False)
+            
+            # For failed steps, show full error message (up to 1000 chars)
+            # For successful steps, truncate long output
+            if not success:
+                display_output = output[:1000] if len(output) > 1000 else output
+            else:
+                if len(output) > 500:
+                    display_output = output[:500] + "... (truncated)"
+                else:
+                    display_output = output
             
             yield {
                 "type": "step_result",
                 "step_id": step.id,
-                "content": step_result.get('output', '')[:200],
-                "success": step_result.get('success', False)
+                "content": display_output,
+                "success": success
             }
             
-            # 更新 Memory
-            self.working_memory.increment_tool(step_result.get('tool', 'unknown'))
+            # ============ Full Memory Integration (aligned with ReAct) ============
+            tool_name = step_result.get('tool', 'unknown')
+            tool_params = step_result.get('params', {})
+            success = step_result.get('success', False)
+            output = step_result.get('output', '')
             
-            if step_result.get('tool') in ('write_file', 'edit_file'):
-                file_path = step_result.get('params', {}).get('path', '')
+            # Tool counting
+            self.working_memory.increment_tool(tool_name)
+            
+            # File read tracking
+            if tool_name == 'read_file':
+                file_path = tool_params.get('path', '')
+                if file_path:
+                    is_new = self.working_memory.add_file_read(file_path)
+                    if not is_new:
+                        logger.warning(f"[PEVL] Duplicate file read: {file_path}")
+            
+            # File write tracking
+            elif tool_name in ('write_file', 'edit_file', 'search_replace'):
+                file_path = tool_params.get('path', '')
                 if file_path:
                     self.working_memory.add_file_written(file_path)
+                    self.working_memory.add_known_fact(f"File {file_path} modified")
+                    self.episodic_memory.update_step(f"Modified: {file_path}", "done")
+            
+            # Command execution tracking
+            elif tool_name == 'execute_command':
+                command = tool_params.get('command', '')
+                if command:
+                    self.working_memory.add_command(command, success, output)
+                    self.episodic_memory.add_finding(
+                        f"Command: {command[:100]}...",
+                        category="command"
+                    )
+            
+            # Directory operation tracking
+            elif tool_name == 'file_tree':
+                path = tool_params.get('path', '')
+                self.working_memory.add_known_fact(f"Listed directory: {path}")
+            
+            # Record results to episodic memory
+            if success:
+                preview = output[:150] if output else "Success"
+                self.episodic_memory.add_finding(
+                    f"Step {step.id}: {preview}",
+                    category="result"
+                )
+            else:
+                error = output[:150] if output else "Failed"
+                self.episodic_memory.add_finding(
+                    f"Step {step.id} failed: {error}",
+                    category="error"
+                )
+                
+                # ============ CRITICAL: Stop execution immediately on failure ============
+                logger.warning(f"[PEVL] Step {step.id} failed, stopping execution")
+                yield {
+                    "type": "execution_stopped",
+                    "content": f"⚠️ Execution stopped at step {step.id} due to failure",
+                    "failed_step": step.id
+                }
+                break
         
         return results
     
     def _execute_step_with_chat(self, step: PlanStep, max_attempts: int = 2) -> Dict[str, Any]:
         """
-        使用 Chat 执行单个步骤,带轻量推理和重试
+        Execute a single step using Chat with lightweight reasoning and retry
         
         Args:
-            step: 计划步骤
-            max_attempts: 最大尝试次数
+            step: Plan step
+            max_attempts: Maximum number of attempts
             
         Returns:
-            执行结果字典
+            Execution result dictionary
         """
         context = ""
         
         for attempt in range(1, max_attempts + 1):
-            # Mini-Reason: Chat 快速推理如何执行
-            reason_prompt = f"""【步骤目标】: {step.description}
-【成功标准】: {step.verify_with or '完成操作'}
-【风险提示】: {', '.join(getattr(step, 'risks', []) or [])}
-【尝试次数】: {attempt}/{max_attempts}
-
-{context}
-
-快速决策 (不要过度思考,给出简洁答案):
-1. 应该用什么工具?
-2. 工具参数是什么?
-
-返回 JSON: {{"tool": "工具名", "params": {{}}}}
-"""
-            
             try:
-                # Chat 快速推理
-                action_response = self.executor_agent.generate(reason_prompt)
+                # Directly use planned tool and params (no re-reasoning to avoid tool name errors)
+                tool_name = step.tool
+                tool_params = step.params
                 
-                # 解析动作
-                import re
-                json_match = re.search(r'\{.*\}', action_response, re.DOTALL)
-                if json_match:
-                    action = json.loads(json_match.group(0))
-                    tool_name = action.get('tool', step.tool)
-                    tool_params = action.get('params', step.params)
-                else:
-                    # 降级到计划中的工具
-                    tool_name = step.tool
-                    tool_params = step.params
+                logger.debug(f"[PEVL] Executing step {step.id} attempt {attempt}: {tool_name} with params {tool_params}")
                 
-                # 执行工具
+                # Execute tool
                 result = self.tool_executor.execute(tool_name, tool_params)
                 
-                # Quick Verify (Chat)
-                if step.verify_with:
-                    verify_prompt = f"""目标: {step.description}
-成功标准: {step.verify_with}
-实际结果: {result.output[:300] if result.success else result.error[:300]}
-
-快速判断 (一句话): 成功了吗? (yes/no/retry)
-"""
-                    
-                    verify_response = self.executor_agent.generate(verify_prompt)
-                    verify_answer = verify_response.lower().strip()
-                    
-                    if 'yes' in verify_answer or '成功' in verify_answer:
-                        # 成功
-                        return {
-                            'tool': tool_name,
-                            'params': tool_params,
-                            'output': result.output,
-                            'success': True,
-                            'attempts': attempt
-                        }
-                    elif ('retry' in verify_answer or '重试' in verify_answer) and attempt < max_attempts:
-                        # 需要重试
-                        context += f"\n第{attempt}次失败: {verify_response}\n"
+                # Return result directly (simple verification based on tool execution result)
+                if result.success:
+                    return {
+                        'tool': tool_name,
+                        'params': tool_params,
+                        'output': result.output,
+                        'success': True,
+                        'attempts': attempt
+                    }
+                else:
+                    # If failed and have more attempts, try again
+                    if attempt < max_attempts:
+                        logger.warning(f"[PEVL] Step {step.id} attempt {attempt} failed: {result.error[:200]}")
                         continue
-                
-                # 返回结果 (可能失败)
-                return {
-                    'tool': tool_name,
-                    'params': tool_params,
-                    'output': result.output if result.success else result.error,
-                    'success': result.success,
-                    'attempts': attempt
-                }
+                    
+                    # Return failure after all attempts
+                    return {
+                        'tool': tool_name,
+                        'params': tool_params,
+                        'output': result.error,
+                        'success': False,
+                        'attempts': attempt
+                    }
                 
             except Exception as e:
                 logger.error(f"Step {step.id} execution error: {e}")
                 if attempt < max_attempts:
-                    context += f"\n第{attempt}次异常: {e}\n"
+                    context += f"\nAttempt {attempt} exception: {e}\n"
                     continue
                 
                 return {
@@ -665,7 +854,7 @@ class PEVLAgent:
                     'attempts': attempt
                 }
         
-        # 所有尝试都失败
+        # All attempts failed
         return {
             'tool': step.tool,
             'params': step.params,
@@ -677,75 +866,88 @@ class PEVLAgent:
     def _phase3_verification(
         self,
         plan: ExecutionPlan,
-        results: List[Dict[str, Any]]
-    ) -> Verification:
+        results: List[Dict[str, Any]],
+        stream_thinking: bool = False
+    ) -> Generator[Verification, None, None]:
         """
-        Phase 3: 使用 R1 深度验证并诊断
+        Phase 3: Use R1 for deep verification and diagnosis
         
         Args:
-            plan: 执行计划
-            results: 执行结果列表
+            plan: Execution plan
+            results: List of execution results
+            stream_thinking: Whether to stream thinking process
             
-        Returns:
-            Verification 对象
+        Yields:
+            Verification object (via final yield/return)
         """
-        # 格式化执行报告
-        report = f"任务: {plan.query}\n\n"
-        report += "执行情况:\n\n"
+        # Format execution report
+        report = f"Task: {plan.query}\n\n"
+        report += "Execution Status:\n\n"
         
         for i, (step, result) in enumerate(zip(plan.steps, results), 1):
             report += f"Step {i}: {step.description}\n"
-            report += f"  工具: {result.get('tool')}\n"
-            report += f"  成功: {result.get('success')}\n"
-            report += f"  输出: {result.get('output', '')[:200]}...\n\n"
+            report += f"  Tool: {result.get('tool')}\n"
+            report += f"  Success: {result.get('success')}\n"
+            report += f"  Output: {result.get('output', '')[:200]}...\n\n"
         
         prompt = f"""{report}
 
-请深度验证和诊断:
+Please perform deep verification and diagnosis:
 
-## 1. 逐步检查
-逐个检查每个步骤:
-- 步骤目标是否达成?
-- 输出是否符合预期?
-- 有没有隐藏的问题?
+## 1. Step-by-Step Check
+Check each step individually:
+- Was the step goal achieved?
+- Does the output match expectations?
+- Are there any hidden issues?
 
-## 2. 整体评估
-- 所有步骤都真正成功了吗?
-- 任务的核心目标达成了吗?
-- 有没有遗漏或错误?
+## 2. Overall Assessment
+- Did all steps truly succeed?
+- Was the core task objective achieved?
+- Are there any omissions or errors?
 
-## 3. 失败诊断 (如果有失败)
-请深入分析失败的根本原因:
-- 是规划问题吗? (步骤遗漏、顺序错误、参数不当)
-- 是执行问题吗? (工具失败、命令错误)
-- 是环境问题吗? (端口占用、权限不足、依赖缺失)
+## 3. Failure Diagnosis (if any failures)
+Please analyze the root cause of failure in depth:
+- Is it a planning issue? (missing steps, wrong order, improper parameters)
+- Is it an execution issue? (tool failure, command error)
+- Is it an environment issue? (port occupied, insufficient permissions, missing dependencies)
 
-## 4. 重规划建议
-- 这个失败能通过重新规划解决吗?
-- 如果重规划,应该如何调整?
+## 4. Replanning Suggestions
+- Can this failure be resolved through replanning?
+- If replanning, how should it be adjusted?
 
-返回 JSON:
+Return JSON:
 ```json
 {{
   "success": true|false,
   "failed_steps": [1, 3],
   "diagnosis": {{
-    "root_cause": "详细的失败原因",
+    "root_cause": "Detailed failure reason",
     "is_plan_issue": true|false,
     "is_execution_issue": true|false,
     "is_environment_issue": true|false
   }},
   "should_replan": true|false,
-  "replan_suggestion": "如果重规划,具体建议...",
-  "reasoning": "深度分析推理过程"
+  "replan_suggestion": "Specific suggestions if replanning...",
+  "reasoning": "Deep analysis reasoning process"
 }}
 ```
 """
         
         try:
-            response = self.verifier_agent.generate(prompt)
+            # Stream thinking if enabled
+            if stream_thinking:
+                yield {"type": "thinking_start", "content": "R1 verifying in depth..."}
+                
+                response = ""
+                for chunk in self.verifier_agent.generate_stream(prompt):
+                    response += chunk
+                    yield {"type": "thinking_chunk", "content": chunk}
+                
+                yield {"type": "thinking_end", "content": ""}
+            else:
+                response = self.verifier_agent.generate(prompt)
             
-            # 解析验证结果
+            # Parse verification result
             import re
             json_match = re.search(r'```json\s*\n(.*?)\n```', response, re.DOTALL)
             if not json_match:
@@ -754,7 +956,7 @@ class PEVLAgent:
             if json_match:
                 data = json.loads(json_match.group(1) if json_match.lastindex else json_match.group(0))
                 
-                return Verification(
+                yield Verification(
                     success=data.get('success', False),
                     failed_steps=data.get('failed_steps', []),
                     diagnosis=data.get('diagnosis', {}),
@@ -762,12 +964,13 @@ class PEVLAgent:
                     replan_suggestion=data.get('replan_suggestion', ''),
                     reasoning=data.get('reasoning', '')
                 )
+                return
         except Exception as e:
             logger.error(f"Verification parsing failed: {e}")
         
-        # 降级: 简单判断
+        # Fallback: simple judgment
         all_success = all(r.get('success', False) for r in results)
-        return Verification(
+        yield Verification(
             success=all_success,
             failed_steps=[],
             diagnosis={'root_cause': 'Verification failed, simple check used'},
@@ -783,49 +986,49 @@ class PEVLAgent:
         context: List[Dict[str, Any]]
     ) -> ReplanDecision:
         """
-        使用 R1 判断是否应该重新规划
+        Use R1 to determine whether replanning should occur
         
         Args:
-            verification: 验证结果
-            round_num: 当前轮数
-            context: 历史上下文
+            verification: Verification result
+            round_num: Current round number
+            context: Historical context
             
         Returns:
-            ReplanDecision 对象
+            ReplanDecision object
         """
-        prompt = f"""第 {round_num} 轮执行失败。请判断是否值得重新规划。
+        prompt = f"""Round {round_num} execution failed. Please determine if replanning is worthwhile.
 
-失败诊断:
+Failure Diagnosis:
 {json.dumps(verification.diagnosis, ensure_ascii=False, indent=2)}
 
-请深度分析:
+Please analyze in depth:
 
-1. **失败本质**: 
-   - 这个失败能通过调整计划解决吗?
-   - 还是环境问题,无法通过规划改变?
+1. **Nature of Failure**: 
+   - Can this failure be resolved by adjusting the plan?
+   - Or is it an environment issue that cannot be changed through planning?
    
-2. **成功概率**:
-   - 如果重规划,成功的可能性有多大? (给出0-1的概率)
-   - 为什么有这个信心?
+2. **Success Probability**:
+   - If replanning, what is the likelihood of success? (give a 0-1 probability)
+   - Why this confidence level?
 
-3. **成本效益**:
-   - 重规划会增加 ~$15-20 成本和 20-30秒时间
-   - 这个投入是否值得?
+3. **Cost-Benefit**:
+   - Replanning will add ~$15-20 cost and 20-30 seconds of time
+   - Is this investment worthwhile?
    
-4. **具体调整**:
-   - 如果重规划,应该如何调整计划?
-   - 列出2-3个关键改动
+4. **Specific Adjustments**:
+   - If replanning, how should the plan be adjusted?
+   - List 2-3 key changes
 
-返回 JSON:
+Return JSON:
 ```json
 {{
   "decision": true|false,
   "confidence": 0.75,
-  "reasoning": "详细的判断理由...",
+  "reasoning": "Detailed reasoning...",
   "suggested_changes": [
-    "改动1: 添加端口检查步骤",
-    "改动2: 使用备用端口",
-    "改动3: 增加错误处理"
+    "Change 1: Add port check step",
+    "Change 2: Use alternative port",
+    "Change 3: Add error handling"
   ]
 }}
 ```
@@ -834,7 +1037,7 @@ class PEVLAgent:
         try:
             response = self.planner_agent.generate(prompt)
             
-            # 解析决策
+            # Parse decision
             import re
             json_match = re.search(r'```json\s*\n(.*?)\n```', response, re.DOTALL)
             if not json_match:
@@ -852,7 +1055,7 @@ class PEVLAgent:
         except Exception as e:
             logger.error(f"Replan decision parsing failed: {e}")
         
-        # 降级: 保守决策 (不重试)
+        # Fallback: conservative decision (no retry)
         return ReplanDecision(
             decision=False,
             confidence=0.0,
@@ -862,19 +1065,19 @@ class PEVLAgent:
     
     def _parse_plan_response(self, response: str, query: str) -> Optional[ExecutionPlan]:
         """
-        解析 LLM 的计划响应
+        Parse LLM plan response
         
         Args:
-            response: LLM 响应文本
-            query: 原始查询
+            response: LLM response text
+            query: Original query
             
         Returns:
-            ExecutionPlan 对象或 None
+            ExecutionPlan object or None
         """
         import re
         import os
         
-        # 尝试提取 JSON
+        # Try to extract JSON
         json_match = re.search(r'```json\s*\n(.*?)\n```', response, re.DOTALL)
         if not json_match:
             json_match = re.search(r'```\s*\n(.*?)\n```', response, re.DOTALL)
@@ -883,14 +1086,14 @@ class PEVLAgent:
             try:
                 data = json.loads(json_match.group(1))
                 
-                # 构建 ExecutionPlan
+                # Build ExecutionPlan
                 plan = ExecutionPlan(
                     query=query,
                     working_directory=data.get('working_directory', os.getcwd()),
                     risks=data.get('risks', [])
                 )
                 
-                # 解析步骤
+                # Parse steps
                 for step_data in data.get('steps', []):
                     step = PlanStep(
                         id=step_data['id'],
@@ -903,7 +1106,7 @@ class PEVLAgent:
                         estimated_risk=step_data.get('estimated_risk', 'low')
                     )
                     
-                    # 添加额外属性 (risks, mitigation)
+                    # Add extra attributes (risks, mitigation)
                     if 'risks' in step_data:
                         step.risks = step_data['risks']
                     if 'mitigation' in step_data:
@@ -913,7 +1116,7 @@ class PEVLAgent:
                 
                 plan.total_steps = len(plan.steps)
                 
-                # 验证计划
+                # Validate plan
                 if plan.total_steps == 0:
                     logger.error("Plan has no steps")
                     return None
@@ -929,75 +1132,638 @@ class PEVLAgent:
     
     def _direct_execute(self, query: str) -> Generator[Dict[str, Any], None, None]:
         """
-        直接执行模式 (极简单任务)
+        Direct execute mode (very simple tasks)
         
         Args:
-            query: 用户查询
+            query: User query
             
         Yields:
-            执行事件
+            Execution events
         """
         yield {
             "type": "mode_selected",
-            "content": "🚀 直接执行模式 (Chat)"
+            "content": "Direct Execute Mode (Chat)"
         }
         
-        # TODO: 实现简单的单次 LLM 调用执行
-        prompt = f"任务: {query}\n\n请用一个工具调用完成。返回 JSON: {{\"tool\": \"...\", \"params\": {{}}}}"
+        # TODO: Implement simple single LLM call execution
+        prompt = f"Task: {query}\n\nPlease complete with one tool call. Return JSON: {{\"tool\": \"...\", \"params\": {{}}}}"
         
         try:
             response = self.executor_agent.generate(prompt)
-            # 解析并执行
-            # ... (简化实现)
+            # Parse and execute
+            # ... (simplified implementation)
             
             yield {
                 "type": "complete",
-                "content": "✅ 直接执行完成",
+                "content": "Direct execute completed",
                 "rounds": 0
             }
         except Exception as e:
             yield {
                 "type": "error",
-                "content": f"直接执行失败: {e}"
+                "content": f"Direct execution failed: {e}"
             }
     
-    def _fast_plan_execute(self, query: str) -> Generator[Dict[str, Any], None, None]:
+    def _fast_plan_execute(self, query: str, stream_thinking: bool = False) -> Generator[Dict[str, Any], None, None]:
         """
-        快速 Plan-Execute 模式 (Chat 规划+执行)
+        Fast Plan-Execute mode (Chat planning + execution)
         
         Args:
-            query: 用户查询
+            query: User query
+            stream_thinking: Whether to stream thinking process (debug mode)
             
         Yields:
-            执行事件
+            Execution events
         """
         yield {
             "type": "mode_selected",
-            "content": "⚡ 快速模式 (Chat Plan-Execute)"
+            "content": "Fast Mode (Chat Plan-Execute)"
         }
         
-        # TODO: 使用 Chat 快速规划并执行
-        # 类似当前的 TwoPhaseAgent 但用 Chat
-        
+        # Phase 1: Fast planning (use Chat model to quickly generate plan)
         yield {
-            "type": "complete",
-            "content": "✅ 快速模式完成",
-            "rounds": 1
+            "type": "phase",
+            "phase": "fast_planning",
+            "content": "Fast Planning (Chat)..."
         }
+        
+        try:
+            # Stream planning output in debug mode
+            if stream_thinking:
+                yield {"type": "thinking_start", "content": "Fast planning with Chat model..."}
+                
+                # Collect streaming response
+                prompt = self._build_fast_planning_prompt(query)
+                response = ""
+                for chunk in self.executor_agent.generate_stream(prompt):
+                    response += chunk
+                    yield {"type": "thinking_chunk", "content": chunk}
+                
+                yield {"type": "thinking_end"}
+                
+                # Parse the response to get plan
+                plan = self._parse_fast_planning_response(response, query)
+            else:
+                plan = self._fast_planning(query)
+            
+            if not plan or plan.total_steps == 0:
+                yield {"type": "error", "content": "Fast planning failed: No valid plan generated"}
+                self._complete_task(success=False, summary="Fast planning failed")
+                return
+            
+            yield {
+                "type": "plan",
+                "content": f"Plan generated: {plan.total_steps} steps",
+                "plan": plan
+            }
+            
+            # Phase 2: Execution (use Chat model)
+            yield {
+                "type": "phase",
+                "phase": "fast_execution",
+                "content": "Fast Execution (Chat)..."
+            }
+            
+            results = yield from self._phase2_execution(plan)
+            
+            # Check if execution was stopped due to failure
+            has_failure = any(not r.get('success', False) for r in results)
+            
+            if has_failure:
+                # ============ OPTIMIZATION: Skip verification, go directly to replanning ============
+                # Extract failure information from results
+                failed_steps = [r for r in results if not r.get('success', False)]
+                failure_info = {
+                    "has_failures": True,
+                    "failed_steps": [r.get('tool', 'unknown') for r in failed_steps],
+                    "error_messages": [r.get('output', '')[:200] for r in failed_steps],
+                    "root_cause": failed_steps[-1].get('output', 'Unknown error')[:300] if failed_steps else "Unknown"
+                }
+                
+                yield {
+                    "type": "execution_failed",
+                    "content": f"🔄 Adjusting plan to address the issue...",
+                    "failure_info": failure_info
+                }
+                
+                # Enter full PEVL loop starting from round 2
+                context = [{
+                    "round": 1,
+                    "plan": plan,
+                    "results": results,
+                    "failure_diagnosis": failure_info,
+                    "suggested_changes": []
+                }]
+                
+                # Continue with PEVL rounds 2-3
+                for round_num in range(2, self.max_rounds + 1):
+                    # Internal round tracking (no UI display)
+                    
+                    # Phase 1: Replanning (R1)
+                    yield {
+                        "type": "phase",
+                        "phase": "planning",
+                        "content": f"Phase 1: Deep Planning (DeepSeek-R1)..."
+                    }
+                    
+                    # Stream planning thinking
+                    new_plan = None
+                    for event in self._phase1_planning(query, context, round_num, stream_thinking=stream_thinking):
+                        if isinstance(event, dict):
+                            yield event
+                        else:
+                            new_plan = event
+                    
+                    if not new_plan or new_plan.total_steps == 0:
+                        yield {"type": "error", "content": "Replanning failed: No valid plan generated"}
+                        break
+                    
+                    yield {
+                        "type": "plan",
+                        "content": new_plan.to_markdown(),
+                        "plan": new_plan
+                    }
+                    
+                    # Phase 2: Execution
+                    yield {
+                        "type": "phase",
+                        "phase": "execution",
+                        "content": f"Phase 2: Guided Execution (Qwen/Chat)..."
+                    }
+                    
+                    new_results = yield from self._phase2_execution(new_plan)
+                    
+                    # Check if execution failed again
+                    has_new_failure = any(not r.get('success', False) for r in new_results)
+                    
+                    if has_new_failure:
+                        # Skip verification, update context for next round
+                        failed_steps = [r for r in new_results if not r.get('success', False)]
+                        failure_info = {
+                            "has_failures": True,
+                            "failed_steps": [r.get('tool', 'unknown') for r in failed_steps],
+                            "error_messages": [r.get('output', '')[:200] for r in failed_steps],
+                            "root_cause": failed_steps[-1].get('output', 'Unknown error')[:300] if failed_steps else "Unknown"
+                        }
+                        
+                        context.append({
+                            "round": round_num,
+                            "plan": new_plan,
+                            "results": new_results,
+                            "failure_diagnosis": failure_info,
+                            "suggested_changes": []
+                        })
+                        continue
+                    
+                    # All steps succeeded, do quick verification
+                    yield {
+                        "type": "phase",
+                        "phase": "verification",
+                        "content": f"Quick Verification..."
+                    }
+                    
+                    # Simple verification without streaming
+                    new_verification = None
+                    for event in self._phase3_verification(new_plan, new_results, stream_thinking=False):
+                        if isinstance(event, dict):
+                            yield event
+                        else:
+                            new_verification = event
+                    
+                    if new_verification.success:
+                        # Success!
+                        yield {
+                            "type": "verification_result",
+                            "content": f"✓ Task goal achieved",
+                            "verification": new_verification
+                        }
+                        
+                        # Generate completion summary
+                        summary_text = self._generate_completion_summary(query, new_plan, new_results)
+                        
+                        yield {
+                            "type": "complete",
+                            "content": f"Task completed in Round {round_num}",
+                            "rounds": round_num,
+                            "stats": self.working_memory.get_stats(),
+                            "summary": summary_text
+                        }
+                        self._complete_task(success=True, summary=f"Completed in {round_num} rounds (upgraded from fast mode)")
+                        return
+                    
+                    # Verification failed - treat as execution failure for next round
+                    failure_info = {
+                        "has_failures": False,
+                        "verification_failed": True,
+                        "root_cause": new_verification.diagnosis.get('root_cause', 'Task goal not achieved') if hasattr(new_verification, 'diagnosis') and new_verification.diagnosis else 'Task goal not achieved',
+                        "failed_steps": new_verification.failed_steps if hasattr(new_verification, 'failed_steps') else []
+                    }
+                    
+                    context.append({
+                        "round": round_num,
+                        "plan": new_plan,
+                        "results": new_results,
+                        "failure_diagnosis": failure_info,
+                        "suggested_changes": []
+                    })
+                
+                # Exhausted all rounds
+                yield {
+                    "type": "failed",
+                    "content": f"Task failed after {self.max_rounds} rounds",
+                    "rounds": self.max_rounds
+                }
+                self._complete_task(success=False, summary=f"Failed after {self.max_rounds} rounds")
+            
+            else:
+                # ============ All steps succeeded: Do quick verification ============
+                # Quick check only - if fails, treat as execution failure and replan
+                yield {
+                    "type": "phase",
+                    "phase": "fast_verification",
+                    "content": "Quick Verification..."
+                }
+                
+                # Simple verification without streaming (we may need to replan)
+                verification = None
+                for event in self._phase3_verification(plan, results, stream_thinking=False):
+                    if isinstance(event, dict):
+                        yield event
+                    else:
+                        verification = event
+                
+                if verification.success:
+                    # Success: generate completion summary
+                    yield {
+                        "type": "verification_result",
+                        "content": f"✓ Task goal achieved",
+                        "verification": verification
+                    }
+                    
+                    summary_text = self._generate_completion_summary(query, plan, results)
+                    
+                    yield {
+                        "type": "complete",
+                        "content": f"Fast mode completed ({plan.total_steps} steps succeeded)",
+                        "rounds": 1,
+                        "stats": self.working_memory.get_stats(),
+                        "summary": summary_text
+                    }
+                    self._complete_task(success=True, summary=f"Fast mode: {plan.total_steps} steps completed")
+                else:
+                    # Verification failed - treat as execution failure, replan directly without detailed diagnosis
+                    # Extract simple failure info from verification
+                    failure_info = {
+                        "has_failures": False,  # Steps succeeded
+                        "verification_failed": True,
+                        "root_cause": verification.diagnosis.get('root_cause', 'Task goal not achieved') if hasattr(verification, 'diagnosis') and verification.diagnosis else 'Task goal not achieved',
+                        "failed_steps": verification.failed_steps if hasattr(verification, 'failed_steps') else []
+                    }
+                    
+                    yield {
+                        "type": "execution_failed",
+                        "content": f"🔄 Task goal not achieved, adjusting plan..."
+                    }
+                    
+                    # Enter full PEVL loop starting from round 2
+                    context = [{
+                        "round": 1,
+                        "plan": plan,
+                        "results": results,
+                        "failure_diagnosis": failure_info,
+                        "suggested_changes": []
+                    }]
+                    
+                    # Continue with PEVL rounds 2-3
+                    for round_num in range(2, self.max_rounds + 1):
+                        # Internal round tracking (no UI display)
+                        
+                        # Phase 1: Replanning (R1)
+                        yield {
+                            "type": "phase",
+                            "phase": "planning",
+                            "content": f"Phase 1: Deep Planning (DeepSeek-R1)..."
+                        }
+                        
+                        # Stream planning thinking
+                        new_plan = None
+                        for event in self._phase1_planning(query, context, round_num, stream_thinking=stream_thinking):
+                            if isinstance(event, dict):
+                                yield event
+                            else:
+                                new_plan = event
+                        
+                        if not new_plan or new_plan.total_steps == 0:
+                            yield {"type": "error", "content": "Replanning failed: No valid plan generated"}
+                            break
+                        
+                        yield {
+                            "type": "plan",
+                            "content": new_plan.to_markdown(),
+                            "plan": new_plan
+                        }
+                        
+                        # Phase 2: Execution
+                        yield {
+                            "type": "phase",
+                            "phase": "execution",
+                            "content": f"Phase 2: Guided Execution (Qwen/Chat)..."
+                        }
+                        
+                        new_results = yield from self._phase2_execution(new_plan)
+                        
+                        # Check if execution failed again
+                        has_new_failure = any(not r.get('success', False) for r in new_results)
+                        
+                        if has_new_failure:
+                            # Skip verification, update context for next round
+                            failed_steps = [r for r in new_results if not r.get('success', False)]
+                            failure_info = {
+                                "has_failures": True,
+                                "failed_steps": [r.get('tool', 'unknown') for r in failed_steps],
+                                "error_messages": [r.get('output', '')[:200] for r in failed_steps],
+                                "root_cause": failed_steps[-1].get('output', 'Unknown error')[:300] if failed_steps else "Unknown"
+                            }
+                            
+                            context.append({
+                                "round": round_num,
+                                "plan": new_plan,
+                                "results": new_results,
+                                "failure_diagnosis": failure_info,
+                                "suggested_changes": []
+                            })
+                            continue
+                        
+                        # All steps succeeded, do verification
+                        yield {
+                            "type": "phase",
+                            "phase": "verification",
+                            "content": f"Phase 3: Deep Verification (DeepSeek-R1)..."
+                        }
+                        
+                        # Stream verification thinking
+                        new_verification = None
+                        for event in self._phase3_verification(new_plan, new_results, stream_thinking=stream_thinking):
+                            if isinstance(event, dict):
+                                yield event
+                            else:
+                                new_verification = event
+                        
+                        yield {
+                            "type": "verification_result",
+                            "content": f"Verification: {'Success' if new_verification.success else 'Failed'}",
+                            "verification": new_verification
+                        }
+                        
+                        if new_verification.success:
+                            # Generate completion summary
+                            summary_text = self._generate_completion_summary(query, new_plan, new_results)
+                            
+                            yield {
+                                "type": "complete",
+                                "content": f"Task completed in Round {round_num}",
+                                "rounds": round_num,
+                                "stats": self.working_memory.get_stats(),
+                                "summary": summary_text
+                            }
+                            self._complete_task(success=True, summary=f"Completed in {round_num} rounds (from fast mode)")
+                            return
+                        
+                        # Verification failed, update context for next round
+                        context.append({
+                            "round": round_num,
+                            "plan": new_plan,
+                            "results": new_results,
+                            "failure_diagnosis": new_verification.diagnosis,
+                            "suggested_changes": []
+                        })
+                    
+                    # Exhausted all rounds
+                    yield {
+                        "type": "failed",
+                        "content": f"Task failed after {self.max_rounds} rounds",
+                        "rounds": self.max_rounds
+                    }
+                    self._complete_task(success=False, summary=f"Failed after {self.max_rounds} rounds")
+                
+        except Exception as e:
+            logger.error(f"Fast plan-execute failed: {e}")
+            yield {
+                "type": "error",
+                "content": f"Fast mode exception: {str(e)}"
+            }
+            self._complete_task(success=False, summary=f"Fast mode exception: {str(e)}")
+    
+    def _get_tool_descriptions(self, max_tools: int = 20) -> str:
+        """Get tool descriptions with parameter names"""
+        descriptions = []
+        for tool in self.tools[:max_tools]:
+            params = tool.parameters.get('properties', {})
+            param_names = list(params.keys())
+            descriptions.append(f"  - {tool.name}: {', '.join(param_names)}")
+        return '\n'.join(descriptions)
+    
+    def _build_fast_planning_prompt(self, query: str) -> str:
+        """Build fast planning prompt"""
+        return f"""You are a task planning expert. Quickly generate a concise execution plan for the following task.
+
+Task: {query}
+
+Requirements:
+- Break down task into 2-4 clear steps
+- Select appropriate tools for each step
+- Keep the plan concise and practical
+- **CRITICAL**: Use EXACT parameter names from tool definitions below
+
+Available tools and their parameters:
+{self._get_tool_descriptions(max_tools=30)}
+
+**IMPORTANT PARAMETER NAMES** (most common mistakes):
+- edit_file: path, old_content, new_content (NOT file_path, NOT content)
+- write_file: path, content (NOT file_path)
+- read_file: path (NOT file_path)
+- execute_command: command (NOT cmd)
+- list_files: path (NOT directory)
+
+Output JSON:
+```json
+{{
+  "working_directory": "/path/to/work",
+  "steps": [
+    {{
+      "id": 1,
+      "description": "Step description",
+      "tool": "tool_name",
+      "params": {{"param": "value"}},
+      "verify_with": "Verification method",
+      "estimated_risk": "low"
+    }}
+  ],
+  "risks": ["Risk description"]
+}}
+```
+"""
+    
+    def _parse_fast_planning_response(self, response: str, query: str) -> Optional[ExecutionPlan]:
+        """Parse fast planning response to ExecutionPlan"""
+        try:
+            logger.info(f"[PEVL Fast Planning] Response: {len(response)} chars")
+            logger.debug(f"[PEVL Fast Planning] Full response:\n{response}")
+            
+            # Parse JSON
+            import re
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+            if json_match:
+                plan_data = json.loads(json_match.group(1))
+            else:
+                # Try direct parsing
+                plan_data = json.loads(response)
+            
+            # Build ExecutionPlan
+            steps = []
+            for step_data in plan_data.get("steps", []):
+                # Compatible with old/new field names
+                description = step_data.get("description") or step_data.get("goal", "Execute step")
+                verify_with = step_data.get("verify_with") or step_data.get("success_criteria", "")
+                
+                step = PlanStep(
+                    id=step_data["id"],
+                    description=description,
+                    tool=step_data["tool"],
+                    params=step_data.get("params", {}),
+                    working_directory=plan_data.get("working_directory", "."),
+                    verify_with=verify_with,
+                    estimated_risk=step_data.get("estimated_risk", "low")
+                )
+                steps.append(step)
+            
+            plan = ExecutionPlan(
+                query=query,
+                working_directory=plan_data.get("working_directory", "."),
+                steps=steps,
+                total_steps=len(steps),
+                risks=plan_data.get("risks", [])
+            )
+            
+            logger.info(f"[PEVL Fast] Plan generated: {plan.total_steps} steps")
+            self.episodic_memory.add_finding(
+                f"Fast plan: {plan.total_steps} steps",
+                category="plan"
+            )
+            
+            return plan
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"[PEVL Fast Planning] Failed to parse JSON: {e}")
+            logger.error(f"[PEVL Fast Planning] Response was: {response[:1000]}")
+            return None
+        except Exception as e:
+            logger.error(f"[PEVL Fast Planning] Exception: {e}", exc_info=True)
+            return None
+    
+    def _fast_planning(self, query: str) -> Optional[ExecutionPlan]:
+        """
+        Fast planning mode (Chat model, non-streaming)
+        
+        Args:
+            query: User query
+            
+        Returns:
+            ExecutionPlan object
+        """
+        try:
+            # Build prompt and generate response
+            prompt = self._build_fast_planning_prompt(query)
+            response = self.executor_agent.generate(prompt)
+            
+            # Parse response to plan
+            return self._parse_fast_planning_response(response, query)
+            
+        except Exception as e:
+            logger.error(f"[PEVL Fast Planning] Exception: {e}", exc_info=True)
+            return None
+    
+    def _generate_completion_summary(
+        self, 
+        query: str, 
+        plan: ExecutionPlan, 
+        results: List[Dict[str, Any]]
+    ) -> str:
+        """
+        Generate task completion summary (similar to Cursor/Claude style)
+        
+        Args:
+            query: Original user query
+            plan: Execution plan
+            results: List of execution results
+            
+        Returns:
+            Summary text
+        """
+        try:
+            # Build execution summary
+            successful_steps = sum(1 for r in results if r.get('success', False))
+            failed_steps = len(results) - successful_steps
+            
+            # Collect key operations
+            actions_summary = []
+            for i, (step, result) in enumerate(zip(plan.steps, results), 1):
+                if result.get('success'):
+                    actions_summary.append(f"✓ {step.description}")
+            
+            actions_text = "\n".join(actions_summary[:5])  # Display up to 5
+            
+            # Build prompt
+            prompt = f"""Based on the following task execution information, generate a concise and professional completion summary (2-3 sentences):
+
+**User Task**: {query}
+
+**Execution Status**:
+- Total steps: {len(results)}
+- Successful: {successful_steps}
+- Failed: {failed_steps}
+
+**Main Operations**:
+{actions_text}
+
+Please summarize the task completion status in a concise, professional, and friendly tone. Focus on:
+1. What was completed
+2. Main work done
+3. Final result
+
+Requirements:
+- 2-3 sentences
+- Use English
+- No Markdown formatting
+- Natural and professional tone"""
+
+            # Use executor (chat) model to generate summary
+            summary = self.executor_agent.generate(prompt).strip()
+            
+            # If generation fails or too short, use default summary
+            if not summary or len(summary) < 20:
+                summary = f"Task completed successfully: {query}. Executed {successful_steps} steps, all operations completed."
+            
+            return summary
+            
+        except Exception as e:
+            logger.warning(f"[PEVL] Failed to generate completion summary: {e}")
+            # Fallback to simple summary
+            return f"Task completed. Successfully executed {len(results)} steps."
     
     def _complete_task(self, success: bool, summary: str):
         """
-        完成任务并更新 Memory
+        Complete task and update memory
         
         Args:
-            success: 是否成功
-            summary: 任务总结
+            success: Whether succeeded
+            summary: Task summary
         """
         if not self.episodic_memory or not self.current_task_id:
             return
         
         self.episodic_memory.update_next_action(
-            f"✅ Completed: {summary}" if success else f"❌ Failed: {summary}"
+            f"Completed: {summary}" if success else f"Failed: {summary}"
         )
         
         self.memory_manager.complete_task(
@@ -1005,7 +1771,7 @@ class PEVLAgent:
             success=success
         )
         
-        # 索引任务
+        # Index task
         if success:
             try:
                 if self.episodic_memory.task_file and self.episodic_memory.task_file.exists():
@@ -1021,3 +1787,97 @@ class PEVLAgent:
         
         stats = self.working_memory.get_stats()
         logger.info(f"[PEVL] Task completed. Stats: {stats}")
+    
+    def _build_analysis_prompt(self, query: str) -> str:
+        """
+        Build task analysis prompt
+        
+        Args:
+            query: User query
+            
+        Returns:
+            Prompt text
+        """
+        # Reuse prompt from _phase0_analysis (avoid code duplication)
+        return f"""Analyze this task and select the optimal execution mode.
+
+Task: {query}
+
+Please perform deep analysis and recommend the optimal solution.
+
+Return JSON:
+{{
+  "complexity": "simple|medium|complex",
+  "uncertainty": "low|medium|high",
+  "recommended_mode": "direct|fast|hybrid|explore",
+  "reasoning": "...",
+  "model_config": {{"planner": "...", "executor": "...", "verifier": "..."}}
+}}
+"""
+    
+    def _parse_task_analysis(self, response: str, query: str) -> TaskAnalysis:
+        """
+        Parse task analysis response
+        
+        Args:
+            response: LLM response
+            query: Original query
+            
+        Returns:
+            TaskAnalysis object
+        """
+        import re
+        
+        json_match = re.search(r'```json\s*\n(.*?)\n```', response, re.DOTALL)
+        if not json_match:
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+        
+        if json_match:
+            try:
+                data = json.loads(json_match.group(1) if json_match.lastindex else json_match.group(0))
+                
+                return TaskAnalysis(
+                    complexity=data.get('complexity', 'medium'),
+                    uncertainty=data.get('uncertainty', 'medium'),
+                    task_type=data.get('task_type', 'other'),
+                    estimated_steps=data.get('estimated_steps', 4),
+                    recommended_mode=data.get('recommended_mode', 'hybrid'),
+                    reasoning=data.get('reasoning', ''),
+                    model_config=data.get('model_config', {
+                        'planner': 'deepseek-r1',
+                        'executor': 'deepseek-chat',
+                        'verifier': 'deepseek-r1'
+                    })
+                )
+            except Exception as e:
+                logger.error(f"Analysis JSON parsing failed: {e}")
+        
+        return self._get_default_task_analysis(query)
+    
+    def _get_default_task_analysis(self, query: str) -> TaskAnalysis:
+        """Get default analysis result (fallback)"""
+        query_lower = query.lower()
+        
+        if any(w in query_lower for w in ['flask', 'django', 'docker', 'deploy']):
+            complexity, steps = 'medium', 4
+        elif any(w in query_lower for w in ['create', 'write', 'read']):
+            complexity, steps = 'simple', 2
+        else:
+            complexity, steps = 'medium', 3
+        
+        uncertainty = 'high' if any(w in query_lower for w in ['port', 'service', 'server']) else 'low'
+        mode = 'fast' if complexity == 'simple' and uncertainty == 'low' else 'hybrid'
+        
+        return TaskAnalysis(
+            complexity=complexity,
+            uncertainty=uncertainty,
+            task_type='other',
+            estimated_steps=steps,
+            recommended_mode=mode,
+            reasoning='Fallback heuristic analysis',
+            model_config={
+                'planner': 'deepseek-r1',
+                'executor': 'deepseek-chat',
+                'verifier': 'deepseek-r1'
+            }
+        )
