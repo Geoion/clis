@@ -40,7 +40,10 @@ def run(ctx: click.Context, query: str, no_tool_calling: bool, mode: str) -> Non
     elif mode == 'auto':
         # Use PEVL mode (R1 auto-select, self-healing)
         cli_module.execute_query_pevl(query, verbose, minimal, debug)
-    elif mode in ['fast', 'plan']:
+    elif mode == 'fast':
+        # Use PEVL mode with fast mode override
+        cli_module.execute_query_pevl(query, verbose, minimal, debug, user_mode='fast')
+    elif mode == 'plan':
         # Use Plan-Execute mode (two-phase)
         cli_module.execute_query_two_phase(query, verbose, minimal, debug)
     elif mode in ['react', 'explore']:
