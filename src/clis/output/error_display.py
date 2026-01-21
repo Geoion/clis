@@ -1,7 +1,7 @@
 """
-错误展示模块 - 用户友好的错误信息展示
+Error display module - User-friendly error message display
 
-提供美观、清晰、有帮助的错误提示
+Provides beautiful, clear, and helpful error prompts
 """
 
 from typing import Optional, List, Any
@@ -14,7 +14,7 @@ console = Console()
 
 
 class ErrorDisplay:
-    """错误展示类"""
+    """Error display class"""
     
     @staticmethod
     def show_error(
@@ -25,37 +25,37 @@ class ErrorDisplay:
         show_help: bool = True
     ):
         """
-        展示格式化的错误信息
+        Display formatted error information
         
         Args:
-            error_type: 错误类型
-            message: 错误信息
-            context: 上下文
-            suggestions: 解决建议列表
-            show_help: 是否显示帮助信息
+            error_type: Error type
+            message: Error message
+            context: Context
+            suggestions: List of solution suggestions
+            show_help: Whether to show help information
         """
-        # 构建错误内容
-        content = f"[bold red]错误类型:[/bold red] {error_type}\n"
-        content += f"[bold]错误信息:[/bold] {message}\n"
+        # Build error content
+        content = f"[bold red]Error Type:[/bold red] {error_type}\n"
+        content += f"[bold]Error Message:[/bold] {message}\n"
         
         if context:
-            content += f"\n[dim]发生位置:[/dim] {context}\n"
+            content += f"\n[dim]Location:[/dim] {context}\n"
         
         if suggestions:
-            content += f"\n[bold yellow]💡 解决建议:[/bold yellow]\n"
+            content += f"\n[bold yellow]💡 Suggestions:[/bold yellow]\n"
             for i, suggestion in enumerate(suggestions, 1):
                 content += f"   {i}. {suggestion}\n"
         
         if show_help:
-            content += f"\n[dim]📚 获取帮助:[/dim]\n"
-            content += f"   • 运行诊断: [cyan]clis doctor[/cyan]\n"
-            content += f"   • 查看文档: [cyan]https://github.com/eskiyin/clis[/cyan]\n"
-            content += f"   • 查看日志: [dim]~/.clis/logs/clis.log[/dim]\n"
+            content += f"\n[dim]📚 Get Help:[/dim]\n"
+            content += f"   • Run diagnostics: [cyan]clis doctor[/cyan]\n"
+            content += f"   • View documentation: [cyan]https://github.com/eskiyin/clis[/cyan]\n"
+            content += f"   • View logs: [dim]~/.clis/logs/clis.log[/dim]\n"
         
-        # 显示面板
+        # Display panel
         console.print(Panel(
             content,
-            title="[bold red]❌ 错误[/bold red]",
+            title="[bold red]❌ Error[/bold red]",
             border_style="red"
         ))
     
@@ -68,43 +68,43 @@ class ErrorDisplay:
         suggestions: Optional[List[str]] = None
     ):
         """
-        展示工具执行错误
+        Display tool execution error
         
         Args:
-            tool_name: 工具名称
-            error_type: 错误类型
-            message: 错误信息
-            params: 工具参数
-            suggestions: 解决建议
+            tool_name: Tool name
+            error_type: Error type
+            message: Error message
+            params: Tool parameters
+            suggestions: Solution suggestions
         """
-        content = f"[bold]工具:[/bold] {tool_name}\n"
-        content += f"[bold red]错误:[/bold red] {error_type}\n"
-        content += f"[bold]信息:[/bold] {message}\n"
+        content = f"[bold]Tool:[/bold] {tool_name}\n"
+        content += f"[bold red]Error:[/bold red] {error_type}\n"
+        content += f"[bold]Message:[/bold] {message}\n"
         
-        # 显示参数
+        # Display parameters
         if params:
-            content += f"\n[bold]调用参数:[/bold]\n"
+            content += f"\n[bold]Call Parameters:[/bold]\n"
             for key, value in params.items():
-                # 截断过长的值
+                # Truncate overly long values
                 value_str = str(value)
                 if len(value_str) > 100:
                     value_str = value_str[:97] + "..."
                 content += f"   • {key}: {value_str}\n"
         
         if suggestions:
-            content += f"\n[bold yellow]💡 建议:[/bold yellow]\n"
+            content += f"\n[bold yellow]💡 Suggestions:[/bold yellow]\n"
             for i, suggestion in enumerate(suggestions, 1):
                 content += f"   {i}. {suggestion}\n"
         
         console.print(Panel(
             content,
-            title=f"[bold red]❌ 工具执行失败: {tool_name}[/bold red]",
+            title=f"[bold red]❌ Tool Execution Failed: {tool_name}[/bold red]",
             border_style="red"
         ))
     
     @staticmethod
-    def show_warning(message: str, title: str = "警告"):
-        """展示警告信息"""
+    def show_warning(message: str, title: str = "Warning"):
+        """Display warning information"""
         console.print(Panel(
             f"[yellow]{message}[/yellow]",
             title=f"[bold yellow]⚠️  {title}[/bold yellow]",
@@ -112,8 +112,8 @@ class ErrorDisplay:
         ))
     
     @staticmethod
-    def show_success(message: str, title: str = "成功"):
-        """展示成功信息"""
+    def show_success(message: str, title: str = "Success"):
+        """Display success information"""
         console.print(Panel(
             f"[green]{message}[/green]",
             title=f"[bold green]✅ {title}[/bold green]",
@@ -122,51 +122,51 @@ class ErrorDisplay:
     
     @staticmethod
     def show_tip(message: str):
-        """展示提示信息"""
-        console.print(f"\n[dim]💡 提示: {message}[/dim]\n")
+        """Display tip information"""
+        console.print(f"\n[dim]💡 Tip: {message}[/dim]\n")
     
     @staticmethod
     def show_validation_error(field: str, value: Any, expected: str):
         """
-        展示参数验证错误
+        Display parameter validation error
         
         Args:
-            field: 字段名
-            value: 实际值
-            expected: 期望的格式/类型
+            field: Field name
+            value: Actual value
+            expected: Expected format/type
         """
-        content = f"[bold]参数验证失败[/bold]\n\n"
-        content += f"字段: [cyan]{field}[/cyan]\n"
-        content += f"实际值: [red]{value}[/red]\n"
-        content += f"期望: [green]{expected}[/green]\n"
+        content = f"[bold]Parameter Validation Failed[/bold]\n\n"
+        content += f"Field: [cyan]{field}[/cyan]\n"
+        content += f"Actual Value: [red]{value}[/red]\n"
+        content += f"Expected: [green]{expected}[/green]\n"
         
         console.print(Panel(
             content,
-            title="[bold red]❌ 参数错误[/bold red]",
+            title="[bold red]❌ Parameter Error[/bold red]",
             border_style="red"
         ))
     
     @staticmethod
     def show_progress_error(task: str, current: int, total: int, error: str):
         """
-        展示进度相关的错误
+        Display progress-related error
         
         Args:
-            task: 任务名称
-            current: 当前进度
-            total: 总数
-            error: 错误信息
+            task: Task name
+            current: Current progress
+            total: Total
+            error: Error message
         """
-        content = f"[bold]任务:[/bold] {task}\n"
-        content += f"[bold]进度:[/bold] {current}/{total}\n"
-        content += f"[bold red]错误:[/bold red] {error}\n"
+        content = f"[bold]Task:[/bold] {task}\n"
+        content += f"[bold]Progress:[/bold] {current}/{total}\n"
+        content += f"[bold red]Error:[/bold red] {error}\n"
         
         console.print(Panel(
             content,
-            title="[bold red]❌ 任务执行失败[/bold red]",
+            title="[bold red]❌ Task Execution Failed[/bold red]",
             border_style="red"
         ))
 
 
-# 导出
+# Export
 __all__ = ['ErrorDisplay']
