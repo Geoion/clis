@@ -111,10 +111,11 @@ class MemoryManager:
         return task_id, task_file
     
     def complete_task(
-        self, 
+        self,
         task_id: str,
         success: bool = True,
-        extract_knowledge: bool = True
+        extract_knowledge: bool = True,
+        failure_reason: Optional[str] = None
     ):
         """
         Mark task as completed
@@ -123,6 +124,7 @@ class MemoryManager:
             task_id: Task ID
             success: Whether successfully completed
             extract_knowledge: Whether to extract knowledge to knowledge base
+            failure_reason: Brief failure reason (for failed tasks, max 100 chars)
         """
         if task_id not in self.metadata["tasks"]:
             # Task doesn't exist, may be directly created file, add metadata
@@ -139,20 +141,34 @@ class MemoryManager:
         if active_file.exists():
             shutil.move(str(active_file), str(completed_file))
             
-            # Add completion marker at file header
+            # Add completion marker and failure reason at file header
             content = completed_file.read_text(encoding='utf-8')
+            
+            # Metadata comments
             header = f"""<!-- COMPLETED: {datetime.now().isoformat()} -->
 <!-- SUCCESS: {success} -->
 
 """
+            
+            # For failed tasks: Add prominent failure reason as first line (human-readable)
+            if not success and failure_reason:
+                failure_reason_short = failure_reason[:100].strip()
+                header += f"""**❌ FAILED: {failure_reason_short}**
+
+"""
+            
             completed_file.write_text(header + content, encoding='utf-8')
         
-        # Update metadata
-        self.metadata["tasks"][task_id].update({
+        # Update metadata with failure reason
+        task_update = {
             "status": TaskStatus.COMPLETED.value if success else TaskStatus.FAILED.value,
             "completed_at": datetime.now().isoformat(),
             "file_path": str(completed_file.relative_to(self.memory_dir)),
-        })
+        }
+        if not success and failure_reason:
+            task_update["failure_reason"] = failure_reason[:100].strip()
+        
+        self.metadata["tasks"][task_id].update(task_update)
         self._save_metadata()
         
         # Extract knowledge
