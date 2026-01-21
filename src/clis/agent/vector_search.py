@@ -9,7 +9,7 @@ Features:
 """
 
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 import json
 from datetime import datetime
 
@@ -65,7 +65,7 @@ class VectorSearch:
         query: str,
         top_k: int = 5,
         min_similarity: float = 0.3
-    ) -> List[Tuple[str, float, str]]:
+    ) -> List[Dict[str, Any]]:
         """
         Search for similar tasks
         
@@ -75,7 +75,7 @@ class VectorSearch:
             min_similarity: Minimum similarity threshold
             
         Returns:
-            List of (task_id, similarity_score, description)
+            List of dicts with keys: task_id, similarity, description, failure_reason (if failed)
         """
         if self.embeddings_available and self.model:
             return self._search_with_embeddings(query, top_k, min_similarity)
@@ -87,7 +87,7 @@ class VectorSearch:
         query: str,
         top_k: int,
         min_similarity: float
-    ) -> List[Tuple[str, float, str]]:
+    ) -> List[Dict[str, Any]]:
         """Search using embedding model"""
         try:
             # Generate query vector
@@ -105,14 +105,18 @@ class VectorSearch:
                 similarity = self._cosine_similarity(query_embedding, task_embedding)
                 
                 if similarity >= min_similarity:
-                    results.append((
-                        task_id,
-                        float(similarity),
-                        data.get('description', '')
-                    ))
+                    result = {
+                        'task_id': task_id,
+                        'similarity': float(similarity),
+                        'description': data.get('description', '')
+                    }
+                    # Include failure reason if available
+                    if data.get('metadata', {}).get('failure_reason'):
+                        result['failure_reason'] = data['metadata']['failure_reason']
+                    results.append(result)
             
             # Sort and return top_k
-            results.sort(key=lambda x: x[1], reverse=True)
+            results.sort(key=lambda x: x['similarity'], reverse=True)
             return results[:top_k]
         
         except Exception as e:
@@ -123,7 +127,7 @@ class VectorSearch:
         self,
         query: str,
         top_k: int
-    ) -> List[Tuple[str, float, str]]:
+    ) -> List[Dict[str, Any]]:
         """Fallback: use keyword search"""
         query_words = set(query.lower().split())
         
@@ -137,13 +141,17 @@ class VectorSearch:
             similarity = overlap / max(len(query_words), 1)
             
             if similarity > 0:
-                results.append((
-                    task_id,
-                    similarity,
-                    data.get('description', '')
-                ))
+                result = {
+                    'task_id': task_id,
+                    'similarity': similarity,
+                    'description': data.get('description', '')
+                }
+                # Include failure reason if available
+                if data.get('metadata', {}).get('failure_reason'):
+                    result['failure_reason'] = data['metadata']['failure_reason']
+                results.append(result)
         
-        results.sort(key=lambda x: x[1], reverse=True)
+        results.sort(key=lambda x: x['similarity'], reverse=True)
         return results[:top_k]
     
     @staticmethod
@@ -161,7 +169,7 @@ class VectorSearch:
         
         return dot_product / (norm1 * norm2)
     
-    def index_task(self, task_id: str, description: str, content: Optional[str] = None):
+    def index_task(self, task_id: str, description: str, content: Optional[str] = None, metadata: Optional[Dict] = None):
         """
         Index a task
         
@@ -169,12 +177,17 @@ class VectorSearch:
             task_id: Task ID
             description: Task description
             content: Task content (optional, for better embedding)
+            metadata: Additional metadata (optional)
         """
         # Prepare index data
         index_data = {
             "description": description,
             "indexed_at": datetime.now().isoformat()
         }
+        
+        # Add metadata if provided
+        if metadata:
+            index_data["metadata"] = metadata
         
         # Generate embedding (if available)
         if self.embeddings_available and self.model:
@@ -250,10 +263,33 @@ class VectorSearch:
         tasks = memory_manager.list_tasks(limit=1000)
         
         for task in tasks:
+            metadata = {}
+            
+            # For failed tasks: Extract failure reason from first line of task file
+            if task.get('status') == 'failed':
+                try:
+                    task_file = memory_manager.get_task_file(task['id'])
+                    if task_file and task_file.exists():
+                        # Read only first 10 lines to find failure reason (efficient!)
+                        with open(task_file, 'r', encoding='utf-8') as f:
+                            for i, line in enumerate(f):
+                                if i >= 10:  # Only check first 10 lines
+                                    break
+                                line = line.strip()
+                                # Look for failure reason line: **❌ FAILED: ...**
+                                if line.startswith('**❌ FAILED:'):
+                                    # Extract failure reason
+                                    failure_reason = line.replace('**❌ FAILED:', '').replace('**', '').strip()
+                                    metadata['failure_reason'] = failure_reason
+                                    break
+                except Exception as e:
+                    logger.debug(f"Could not extract failure reason for task {task['id']}: {e}")
+            
             self.index_task(
                 task['id'],
                 task.get('description', ''),
-                None  # Don't include full content for now
+                None,  # Don't include full content for now
+                metadata if metadata else None
             )
         
         logger.info(f"Rebuilt index with {len(self.index)} tasks")
