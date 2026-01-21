@@ -6,7 +6,7 @@ Enables LLM to actively call tools to gather information and execute commands.
 
 # Core
 from clis.tools.base import Tool, ToolResult, ToolExecutor
-from clis.tools.registry import ToolRegistry
+from clis.tools.registry import ToolRegistry, get_all_tools
 
 # Built-in tools (Phase 0)
 from clis.tools.builtin import (
@@ -72,6 +72,7 @@ from clis.tools.system import (
     GetEnvTool,
     ListProcessesTool,
     RunTerminalCmdTool,
+    StartServiceTool,
 )
 
 # Network tools
@@ -86,6 +87,7 @@ __all__ = [
     "ToolResult",
     "ToolExecutor",
     "ToolRegistry",
+    "get_all_tools",
     # Built-in (Phase 0)
     "ListFilesTool",
     "ReadFileTool",
@@ -134,6 +136,7 @@ __all__ = [
     "GetEnvTool",
     "ListProcessesTool",
     "RunTerminalCmdTool",
+    "StartServiceTool",
     # Network
     "HttpRequestTool",
     "CheckPortTool",
