@@ -3,9 +3,10 @@ Built-in tools for CLIS.
 """
 
 import os
+import re
 import subprocess
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from clis.tools.base import Tool, ToolResult
 from clis.utils.logger import get_logger
@@ -168,13 +169,14 @@ class ReadFileTool(Tool):
         Execute read file with optional chunking.
         
         Args:
-            path: Path to the file
+            path: Path to the file (supports ~ path expansion)
             max_lines: Maximum lines to read (-1 for all)
             chunk_index: Which chunk to read (0-indexed)
             auto_chunk: Whether to use automatic chunking
         """
         try:
-            path_obj = Path(path)
+            # Expand ~ path
+            path_obj = Path(path).expanduser()
             
             if not path_obj.exists():
                 return ToolResult(
@@ -354,13 +356,25 @@ class ExecuteCommandTool(Tool):
             )
             
             output = result.stdout
-            if result.stderr:
-                output += f"\n[stderr]\n{result.stderr}"
+            stderr = result.stderr
+            
+            # Build output
+            if stderr:
+                output += f"\n[stderr]\n{stderr}"
+            
+            # Intelligent error analysis and suggestions
+            error_msg = None
+            suggestion = None
+            if result.returncode != 0:
+                error_msg = f"Command exited with code {result.returncode}"
+                suggestion = self._analyze_error(command, result.returncode, stderr)
+                if suggestion:
+                    error_msg += f"\n\n💡 Suggestion: {suggestion}"
             
             return ToolResult(
                 success=result.returncode == 0,
                 output=output,
-                error=None if result.returncode == 0 else f"Command exited with code {result.returncode}",
+                error=error_msg,
                 metadata={"exit_code": result.returncode}
             )
         
@@ -377,6 +391,63 @@ class ExecuteCommandTool(Tool):
                 output="",
                 error=f"Error executing command: {str(e)}"
             )
+    
+    def _analyze_error(self, command: str, exit_code: int, stderr: str) -> Optional[str]:
+        """
+        Analyze command error and provide intelligent suggestions.
+        
+        Args:
+            command: Executed command
+            exit_code: Exit code
+            stderr: Standard error output
+            
+        Returns:
+            Suggestion message if available
+        """
+        stderr_lower = stderr.lower() if stderr else ""
+        
+        # Git related errors
+        if "git" in command:
+            if exit_code == 128:
+                if "not a git repository" in stderr_lower:
+                    return "This is not a Git repository. Check if you need to run 'git init' to initialize, or cd to the correct directory"
+                elif "fatal: not a valid object name" in stderr_lower:
+                    return "Branch or commit does not exist. Use 'git branch' to see available branches"
+            elif exit_code == 1:
+                if "nothing to commit" in stderr_lower:
+                    return "No changes to commit. Use 'git status' to check status"
+                elif "pathspec" in stderr_lower:
+                    return "File path does not exist. Check if the file path is correct"
+        
+        # File/directory errors
+        if exit_code == 1 and ("no such file or directory" in stderr_lower or "cannot find" in stderr_lower):
+            return "File or directory does not exist. Check if the path is correct, or if you need to create it first"
+        
+        # Permission errors
+        if "permission denied" in stderr_lower:
+            return "Insufficient permissions. May need to modify file permissions or use sudo (if allowed)"
+        
+        # Port already in use
+        if "address already in use" in stderr_lower or "port" in stderr_lower and "in use" in stderr_lower:
+            # Extract port number
+            port_match = re.search(r'port\s+(\d+)', stderr_lower)
+            port = port_match.group(1) if port_match else "unknown"
+            
+            return f"""Port {port} is already in use.
+
+💡 Solutions (by priority):
+1. Use another port (recommended): Change port number in code to {int(port)+1 if port.isdigit() else '5001'}
+2. Check process using port: lsof -i :{port}
+3. Stop process using port (caution): lsof -ti:{port} | xargs kill
+
+⚠️ Note: If it's a system service, choose solution 1!"""
+        
+        # Command not found
+        if exit_code == 127 or "command not found" in stderr_lower:
+            cmd_name = command.split()[0] if command else ""
+            return f"Command '{cmd_name}' not found. Check if it's installed or if spelling is correct"
+        
+        return None
 
 
 class GitStatusTool(Tool):
