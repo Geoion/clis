@@ -19,6 +19,375 @@ from clis.safety import SafetyMiddleware
 from clis.utils.platform import get_clis_dir, get_platform
 
 
+def execute_query_pevl(query: str, verbose: bool = False, minimal: bool = False, debug: bool = False, user_mode: str = "auto") -> None:
+    """
+    Execute a query in PEVL mode (Plan-Execute-Verify Loop with self-healing).
+    
+    Args:
+        query: User's natural language query
+        verbose: Enable verbose output
+        minimal: Enable minimal output
+        debug: Enable debug output
+        user_mode: User mode override ('auto' for R1 decision)
+    """
+    try:
+        from rich.console import Console
+        from rich.panel import Panel
+        from rich.text import Text
+        from rich.markdown import Markdown
+        from rich import box
+        
+        console = Console()
+        config_manager = ConfigManager()
+        
+        # Check config
+        if not config_manager.config_exists():
+            click.echo("Warning: Configuration not found. Please run 'clis init' first.", err=True)
+            sys.exit(1)
+        
+        # Build tools
+        from clis.agent.pevl_agent import PEVLAgent
+        from clis.tools.registry import get_all_tools
+        
+        tools = get_all_tools()
+        
+        # Initialize PEVL agent
+        agent = PEVLAgent(config_manager=config_manager, tools=tools)
+        
+        # Display header
+        console.print(Panel(
+            Text(query, style="bold cyan"),
+            title="[bold blue]Task[/bold blue]",
+            title_align="left",
+            border_style="blue",
+            box=box.ROUNDED
+        ))
+        console.print()
+        
+        # Execute with PEVL loop (enable streaming in debug mode)
+        for step in agent.execute(
+            query,
+            user_mode_override=user_mode if user_mode != "auto" else None,
+            stream_thinking=debug
+        ):
+            step_type = step.get('type')
+            
+            if step_type == "phase":
+                phase_name = step.get('phase', '')
+                # Format phase name: first letter uppercase, rest lowercase (e.g., "Fast verification")
+                formatted_phase = phase_name.replace('_', ' ').capitalize() if phase_name else "Phase"
+                console.print()
+                console.print(Panel(
+                    Text(step['content'], style="bold magenta"),
+                    title=f"[bold magenta]{formatted_phase}[/bold magenta]",
+                    title_align="left",
+                    border_style="magenta",
+                    box=box.ROUNDED
+                ))
+            
+            elif step_type == "thinking_start":
+                if debug:
+                    console.print(f"\n[dim italic]{step['content']}[/dim italic]")
+            
+            elif step_type == "thinking_chunk":
+                if debug:
+                    # Use style parameter, not markup
+                    console.print(step['content'], end="", style="dim cyan")
+            
+            elif step_type == "thinking_end":
+                if debug:
+                    console.print()  # Newline
+            
+            elif step_type == "analysis_result":
+                console.print()
+                console.print(Panel(
+                    Text(step['content'], style="cyan"),
+                    title="[bold cyan]Analysis Result[/bold cyan]",
+                    title_align="left",
+                    border_style="cyan",
+                    box=box.ROUNDED
+                ))
+                analysis = step.get('analysis')
+                if analysis and verbose:
+                    console.print(f"\n[dim]Reasoning: {analysis.reasoning[:200]}...[/dim]")
+            
+            # Removed: round_start event (internal detail, no need to display)
+            
+            elif step_type == "plan":
+                try:
+                    console.print(Panel(
+                        Markdown(step['content']),
+                        title="[bold green]Execution Plan[/bold green]",
+                        title_align="left",
+                        border_style="green",
+                        box=box.ROUNDED
+                    ))
+                except Exception as e:
+                    console.print(f"\n[bold green]Execution Plan:[/bold green]\n")
+                    console.print(step['content'])
+            
+            elif step_type == "step_start":
+                console.print(f"\n[bold cyan]{step['content']}[/bold cyan]")
+                if debug:
+                    tool = step.get('tool', 'unknown')
+                    params = step.get('params', {})
+                    console.print(f"[dim]  Tool: {tool}[/dim]")
+                    console.print(f"[dim]  Params: {params}[/dim]")
+            
+            elif step_type == "step_result":
+                if step.get('success'):
+                    preview = step['content'][:150] if not debug else step['content'][:500]
+                    console.print(f"  [green]Success[/green] [dim]{preview}[/dim]")
+                    if debug and len(step['content']) > 150:
+                        console.print(f"[dim cyan]Full output: {step['content']}[/dim cyan]")
+                else:
+                    console.print(f"  [red]Failed[/red]")
+                    if debug:
+                        console.print(f"[dim red]Error: {step.get('content', 'No error message')}[/dim red]")
+            
+            elif step_type == "execution_stopped":
+                console.print(f"\n[bold yellow]{step['content']}[/bold yellow]")
+                if debug:
+                    console.print(f"[dim]Failed at step: {step.get('failed_step', 'unknown')}[/dim]")
+            
+            elif step_type == "execution_failed":
+                console.print(f"\n[cyan]{step['content']}[/cyan]")
+                if debug and step.get('failure_info'):
+                    info = step['failure_info']
+                    console.print(f"[dim]Root cause: {info.get('root_cause', '')[:200]}[/dim]")
+            
+            elif step_type == "verification_result":
+                verification = step.get('verification')
+                # Check if verification is a Verification object or dict
+                if verification:
+                    success = verification.success if hasattr(verification, 'success') else verification.get('success', False)
+                else:
+                    success = 'Success' in step.get('content', '')
+                
+                if success:
+                    console.print(f"\n[bold green]{step['content']}[/bold green]")
+                else:
+                    console.print(f"\n[bold yellow]{step['content']}[/bold yellow]")
+                    # Show diagnosis even without verbose flag for failed verifications
+                    if verification:
+                        diagnosis = verification.diagnosis if hasattr(verification, 'diagnosis') else verification.get('diagnosis', {})
+                        if isinstance(diagnosis, dict) and diagnosis:
+                            root_cause = diagnosis.get('root_cause', '')
+                            if root_cause:
+                                console.print(f"[dim yellow]💡 Reason: {root_cause[:200]}[/dim yellow]")
+                            if verbose:
+                                # Show full details in verbose mode
+                                for key, value in diagnosis.items():
+                                    if key != 'root_cause':
+                                        console.print(f"[dim]  {key}: {value}[/dim]")
+            
+            elif step_type == "replan_decision":
+                console.print(f"\n[cyan]{step['content']}[/cyan]")
+                if verbose:
+                    decision = step.get('decision')
+                    if decision:
+                        console.print(f"[dim]Reason: {decision.reasoning[:200]}...[/dim]")
+            
+            # Removed: replan event (no longer emitted)
+            
+            elif step_type == "complete":
+                rounds = step.get('rounds', 1)
+                summary = step.get('summary', '')
+                
+                console.print()
+                console.print(Panel(
+                    Text(step['content'], style="bold green"),
+                    title=f"[bold green]✓ Completed (Round {rounds})[/bold green]",
+                    title_align="left",
+                    border_style="green",
+                    box=box.ROUNDED
+                ))
+                
+                # Display intelligent summary
+                if summary:
+                    console.print()
+                    console.print(Panel(
+                        Text(summary, style="cyan"),
+                        title="[bold cyan]📝 Summary[/bold cyan]",
+                        title_align="left",
+                        border_style="cyan",
+                        box=box.ROUNDED
+                    ))
+                
+                if verbose:
+                    stats = step.get('stats', {})
+                    console.print(f"\n[dim]Stats: {stats}[/dim]")
+            
+            elif step_type == "failed":
+                rounds = step.get('rounds', 1)
+                console.print()
+                console.print(Panel(
+                    Text(step['content'], style="bold red"),
+                    title=f"[bold red]✗ Failed (After {rounds} rounds)[/bold red]",
+                    title_align="left",
+                    border_style="red",
+                    box=box.ROUNDED
+                ))
+            
+            elif step_type == "error":
+                console.print(f"\n[red]Error: {step['content']}[/red]")
+        
+    except KeyboardInterrupt:
+        console.print("\n\n[yellow]Task cancelled[/yellow]")
+        sys.exit(130)
+    except Exception as e:
+        console.print(f"\n[red]Error: {e}[/red]")
+        if debug:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+def execute_query_two_phase(query: str, verbose: bool = False, minimal: bool = False, debug: bool = False) -> None:
+    """
+    Execute a query in two-phase mode (Plan → Execute).
+    
+    Args:
+        query: User's natural language query
+        verbose: Enable verbose output
+        minimal: Enable minimal output
+        debug: Enable debug output
+    """
+    try:
+        from rich.console import Console
+        from rich.panel import Panel
+        from rich.text import Text
+        from rich.markdown import Markdown
+        from rich import box
+        
+        console = Console()
+        config_manager = ConfigManager()
+        
+        # Check config
+        if not config_manager.config_exists():
+            click.echo("Warning: Configuration not found. Please run 'clis init' first.", err=True)
+            sys.exit(1)
+        
+        # Build tools (same as interactive mode)
+        from clis.agent.two_phase_agent import TwoPhaseAgent
+        from clis.tools import (
+            ListFilesTool, ReadFileTool, ExecuteCommandTool, WriteFileTool, EditFileTool,
+            SearchReplaceTool, InsertCodeTool, DeleteLinesTool, DeleteFileTool,
+            GrepTool, SearchFilesTool, FileTreeTool, GetFileInfoTool, ReadLintsTool,
+            CodebaseSearchTool, FindDefinitionTool, FindReferencesTool, GetSymbolsTool,
+            GitStatusTool, GitAddTool, GitCommitTool, GitLogTool, GitDiffTool,
+            GitPullTool, GitPushTool, GitBranchTool, GitCheckoutTool,
+            DockerPsTool, DockerLogsTool, DockerInspectTool, DockerStatsTool,
+            DockerImagesTool, DockerRmiTool,
+            SystemInfoTool, CheckCommandTool, GetEnvTool, ListProcessesTool,
+            RunTerminalCmdTool, StartServiceTool, HttpRequestTool, CheckPortTool
+        )
+        
+        tools = [
+            ListFilesTool(), ReadFileTool(), ExecuteCommandTool(), WriteFileTool(), EditFileTool(),
+            SearchReplaceTool(), InsertCodeTool(), DeleteLinesTool(), DeleteFileTool(),
+            GrepTool(), SearchFilesTool(), FileTreeTool(), GetFileInfoTool(), ReadLintsTool(),
+            CodebaseSearchTool(), FindDefinitionTool(), FindReferencesTool(), GetSymbolsTool(),
+            GitStatusTool(), GitAddTool(), GitCommitTool(), GitLogTool(), GitDiffTool(),
+            GitPullTool(), GitPushTool(), GitBranchTool(), GitCheckoutTool(),
+            DockerPsTool(), DockerLogsTool(), DockerInspectTool(), DockerStatsTool(),
+            DockerImagesTool(), DockerRmiTool(),
+            SystemInfoTool(), CheckCommandTool(), GetEnvTool(), ListProcessesTool(),
+            RunTerminalCmdTool(), StartServiceTool(), HttpRequestTool(), CheckPortTool()
+        ]
+        
+        # Initialize two-phase agent
+        agent = TwoPhaseAgent(config_manager=config_manager, tools=tools)
+        
+        # Display header
+        console.print(Panel(
+            Text(query, style="bold cyan"),
+            title="[bold blue]Task[/bold blue]",
+            title_align="left",
+            border_style="blue",
+            box=box.ROUNDED
+        ))
+        console.print()
+        
+        # Execute with streaming
+        plan_content = None
+        for step in agent.execute(query, auto_approve_plan=False):
+            step_type = step.get('type')
+            
+            if step_type == "complexity_assessment":
+                console.print(f"[dim]{step['content']}[/dim]")
+            
+            elif step_type == "phase":
+                phase = step.get('phase', '')
+                console.print(f"\n[bold magenta]{'='*60}[/bold magenta]")
+                console.print(f"[bold magenta]{step['content']}[/bold magenta]")
+                console.print(f"[bold magenta]{'='*60}[/bold magenta]\n")
+            
+            elif step_type == "plan":
+                plan_content = step['content']
+                try:
+                    console.print(Panel(
+                        Markdown(plan_content),
+                        title="[bold green]Execution Plan[/bold green]",
+                        title_align="left",
+                        border_style="green",
+                        box=box.ROUNDED
+                    ))
+                except Exception as e:
+                    # If Markdown rendering fails, display as plain text
+                    console.print(f"\n[bold green]Execution Plan:[/bold green]\n")
+                    console.print(plan_content)
+                    console.print(f"\n[dim]Warning: Markdown rendering failed: {e}[/dim]\n")
+            
+            elif step_type == "plan_approval_needed":
+                console.print(f"\n[yellow]{step['content']}[/yellow]")
+                # TODO: Wait for user approval
+                console.print("[dim](Currently auto-approved)[/dim]\n")
+            
+            elif step_type == "step_start":
+                console.print(f"\n[bold cyan]▶ {step['content']}[/bold cyan]")
+            
+            elif step_type == "tool_call":
+                tool_name = step.get('tool', '')
+                console.print(f"  🔧 Calling: {tool_name}")
+            
+            elif step_type == "tool_result":
+                if step.get('success'):
+                    preview = step['content'][:150]
+                    console.print(f"  [green]OK[/green] [dim]{preview}[/dim]")
+                else:
+                    console.print(f"  [red]X Failed[/red]")
+            
+            elif step_type == "verification_start":
+                console.print(f"  [cyan]{step['content']}[/cyan]")
+            
+            elif step_type == "verification_result":
+                if step.get('success'):
+                    console.print(f"  [green]{step['content']}[/green]")
+                else:
+                    console.print(f"  [yellow]{step['content']}[/yellow]")
+            
+            elif step_type == "complete":
+                console.print()
+                console.print(Panel(
+                    Text(step['content'], style="bold green"),
+                    title="[bold green]✓ Completed[/bold green]",
+                    title_align="left",
+                    border_style="green",
+                    box=box.ROUNDED
+                ))
+        
+    except KeyboardInterrupt:
+        console.print("\n\n[yellow]Warning: Task cancelled[/yellow]")
+        sys.exit(130)
+    except Exception as e:
+        console.print(f"\n[red]Error: {e}[/red]")
+        if debug:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
 def execute_query_interactive(query: str, verbose: bool = False, minimal: bool = False, debug: bool = False) -> None:
     """
     Execute a query in interactive mode (step-by-step execution).
@@ -35,7 +404,7 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
         
         # Check if config exists
         if not config_manager.config_exists():
-            click.echo("⚠️  Configuration not found. Please run 'clis init' first.", err=True)
+            click.echo("Warning: Configuration not found. Please run 'clis init' first.", err=True)
             sys.exit(1)
         
         # Set output level
@@ -69,7 +438,7 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                 skill_instructions = matched_skill.instructions
                 
                 if verbose or debug:
-                    click.echo(f"✓ Matched skill: {matched_skill.name} (confidence: {confidence:.2f})")
+                    click.echo(f"OK Matched skill: {matched_skill.name} (confidence: {confidence:.2f})")
                     if hasattr(matched_skill, 'required_tools') and matched_skill.required_tools:
                         click.echo(f"  Required tools: {', '.join(matched_skill.required_tools)}")
         
@@ -82,13 +451,88 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
             FileTreeTool, WriteFileTool, GetFileInfoTool,
             GitAddTool, GitBranchTool, GitCheckoutTool, GitCommitTool, GitDiffTool, GitLogTool, GitPullTool, GitPushTool,
             DockerLogsTool, DockerInspectTool, DockerStatsTool, DockerImagesTool, DockerRmiTool,
-            SystemInfoTool, CheckCommandTool, GetEnvTool, ListProcessesTool, RunTerminalCmdTool,
+            SystemInfoTool, CheckCommandTool, GetEnvTool, ListProcessesTool, RunTerminalCmdTool, StartServiceTool,
             HttpRequestTool, CheckPortTool
         )
         from clis.tools.registry import ToolRegistry
         
+        # ============ Intelligent tool filtering ============
+        # Intelligently select relevant tools based on query content, reduce cognitive load
+        query_lower = query.lower()
+        
+        # Core tools (always included, 13 tools)
+        core_tools_list = [
+            ListFilesTool(), ReadFileTool(), WriteFileTool(), EditFileTool(),
+            FileTreeTool(), SearchFilesTool(), GrepTool(), GetFileInfoTool(),
+            ExecuteCommandTool(), SystemInfoTool(), StartServiceTool(),
+            HttpRequestTool(), CheckPortTool()
+        ]
+        
+        # Add specific tools based on keywords
+        conditional_tools = []
+        
+        # Git related (8 tools)
+        if any(k in query_lower for k in ['git', 'commit', 'repository', 'branch']):
+            conditional_tools.extend([
+                GitStatusTool(), GitAddTool(), GitCommitTool(), GitLogTool(),
+                GitDiffTool(), GitPullTool(), GitPushTool(), GitBranchTool(), GitCheckoutTool()
+            ])
+        
+        # Docker related (5 tools)
+        if any(k in query_lower for k in ['docker', 'container', 'image']):
+            conditional_tools.extend([
+                DockerPsTool(), DockerLogsTool(), DockerInspectTool(),
+                DockerStatsTool(), DockerImagesTool(), DockerRmiTool()
+            ])
+        
+        # Code analysis related (4 tools)
+        if any(k in query_lower for k in ['search', 'find', 'definition', 'reference', 'symbol']):
+            conditional_tools.extend([
+                CodebaseSearchTool(), FindDefinitionTool(),
+                FindReferencesTool(), GetSymbolsTool()
+            ])
+        
+        # Batch editing related (3 tools)
+        if any(k in query_lower for k in ['replace', 'batch', 'insert', 'delete']):
+            conditional_tools.extend([
+                SearchReplaceTool(), InsertCodeTool(), DeleteLinesTool(), DeleteFileTool()
+            ])
+        
+        # System/process related (3 tools)
+        if any(k in query_lower for k in ['process', 'check', 'command']):
+            conditional_tools.extend([
+                ListProcessesTool(), CheckCommandTool(), GetEnvTool(), RunTerminalCmdTool()
+            ])
+        
+        # Other tools
+        if any(k in query_lower for k in ['lint', 'error']):
+            conditional_tools.append(ReadLintsTool())
+        
+        # Merge tool lists and deduplicate
+        tools = core_tools_list + conditional_tools
+        # Deduplicate (based on tool name)
+        seen = set()
+        unique_tools = []
+        for t in tools:
+            if t.name not in seen:
+                seen.add(t.name)
+                unique_tools.append(t)
+        
+        tools = unique_tools
+        
+        if verbose or debug:
+            click.echo(f"Tools after intelligent filtering: {len(tools)} (reduced from 40)")
+        
         # Build tool list based on matched skill
-        if matched_skill and hasattr(matched_skill, 'required_tools') and matched_skill.required_tools:
+        # Note: If skill matched and has specific tool requirements, use skill's tools
+        use_skill_tools = (
+            matched_skill and 
+            hasattr(matched_skill, 'required_tools') and 
+            matched_skill.required_tools and
+            len(matched_skill.required_tools) >= 10  # Only limit if at least 10 tools required
+        )
+        
+        if use_skill_tools:
             # Create a mapping of tool names to tool instances
             all_available_tools = {
                 'list_files': ListFilesTool(),
@@ -134,7 +578,7 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                     tools.append(tool)
                 else:
                     if verbose or debug:
-                        click.echo(f"  ⚠️  Tool '{tool_name}' not found")
+                        click.echo(f"  Warning: Tool '{tool_name}' not found")
             
             # Always include essential tools
             if not any(t.name == 'execute_command' for t in tools):
@@ -151,7 +595,7 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                 FileTreeTool(), WriteFileTool(), GetFileInfoTool(),
                 GitAddTool(), GitBranchTool(), GitCheckoutTool(), GitCommitTool(), GitDiffTool(), GitLogTool(), GitPullTool(), GitPushTool(),
                 DockerLogsTool(), DockerInspectTool(), DockerStatsTool(), DockerImagesTool(), DockerRmiTool(),
-                SystemInfoTool(), CheckCommandTool(), GetEnvTool(), ListProcessesTool(), RunTerminalCmdTool(),
+                SystemInfoTool(), CheckCommandTool(), GetEnvTool(), ListProcessesTool(), RunTerminalCmdTool(), StartServiceTool(),
                 HttpRequestTool(), CheckPortTool()
             ]
         
@@ -164,6 +608,12 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                 if isinstance(tool, ReadFileTool):
                     tool.set_chunker(chunker)
                     break
+        
+        # Debug: Print available tools (optional debugging)
+        tool_names = [t.name for t in tools]
+        if verbose or debug:
+            click.echo(f"Matched skill: {matched_skill.name if matched_skill else 'None'}")
+            click.echo(f"Available tools ({len(tools)}): {', '.join(tool_names[:15])}...")
         
         # Step 3: Initialize interactive agent with skill context
         agent = InteractiveAgent(
@@ -183,10 +633,10 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
         # Header - simple and clean
         console.print(Panel(
             Text(query, style="bold cyan"),
-            title="[bold blue]🤖 Task[/bold blue]",
+            title="[bold blue]Task[/bold blue]",
+            title_align="left",
             border_style="blue",
-            box=box.ROUNDED,
-            padding=(0, 1)
+            box=box.ROUNDED
         ))
         console.print()
         
@@ -212,7 +662,7 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                     thinking_buffer = ""
                     # Show thinking indicator only in verbose/debug mode
                     if verbose or debug:
-                        console.print(f"\n[dim italic]💭 Reasoning (Iteration {iteration_number})...[/dim italic]")
+                        console.print(f"\n[dim italic]Reasoning (Iteration {iteration_number})...[/dim italic]")
                 
                 elif step_type == "thinking_chunk":
                     # Collect thinking content
@@ -243,7 +693,7 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                                     import builtins
                                     action_json = json.loads(action_match.group(1))
                                     # Convert JSON to readable format
-                                    action_md = "\n📋 Action:\n"
+                                    action_md = "\nAction:\n"
                                     for key, value in action_json.items():
                                         if isinstance(value, str):
                                             # For long strings, add line breaks
@@ -269,9 +719,9 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                             
                             console.print(Panel(
                                 formatted_reasoning,
-                                title="[dim]💡 Complete Reasoning[/dim]",
+                                title="[dim]Complete reasoning[/dim]",
+                                title_align="left",
                                 border_style="dim cyan",
-                                padding=(0, 1),
                                 box=box.ROUNDED
                             ))
                 
@@ -292,19 +742,39 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                     
                     # Check if tool requires confirmation
                     if step.get('requires_confirmation'):
-                        console.print(f"   [yellow]⚠️  This operation requires confirmation[/yellow]")
-                        response = click.prompt(
-                            "   Approve? [y/N]",
-                            type=str,
-                            default="N"
-                        ).lower().strip()
+                        # Check auto-approve configuration
+                        safety_config = config_manager.load_safety_config()
+                        auto_approve_config = safety_config.auto_approve
                         
-                        approved = response in ['y', 'yes']
+                        # Determine if we should auto-approve
+                        should_auto_approve = False
+                        if auto_approve_config.enabled:
+                            risk_level = step.get('risk_level', 'high')
+                            risk_levels = {'low': 1, 'medium': 2, 'high': 3, 'critical': 4}
+                            max_level = risk_levels.get(auto_approve_config.max_risk_level, 1)
+                            current_level = risk_levels.get(risk_level, 4)
+                            
+                            # Check if readonly_only constraint is satisfied
+                            is_readonly = getattr(tool, 'readonly', False) if tool else False
+                            if not auto_approve_config.readonly_only or is_readonly:
+                                should_auto_approve = current_level <= max_level
+                        
+                        if should_auto_approve:
+                            console.print(f"   [green]OK Auto-approved[/green] [dim](risk: {step.get('risk_level', 'unknown')})[/dim]")
+                            approved = True
+                        else:
+                            console.print(f"   [yellow]Warning: This operation requires confirmation[/yellow]")
+                            response = click.prompt(
+                                "   Approve? [y/N]",
+                                type=str,
+                                default="N"
+                            ).lower().strip()
+                            approved = response in ['y', 'yes']
                         
                         if not approved:
                             # Record rejection and display
                             result = agent.execute_tool(tool_name, params, approved=False)
-                            console.print(f"   [yellow]⚠️  {result['content']}[/yellow]")
+                            console.print(f"   [yellow]Warning: {result['content']}[/yellow]")
                             # Agent will continue with next iteration automatically
                         else:
                             # Execute after approval
@@ -313,10 +783,10 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                                 result_preview = result['content'][:200]
                                 if len(result['content']) > 200:
                                     result_preview += "..."
-                                console.print(f"   [green]✓[/green] [dim]{result_preview}[/dim]")
+                                console.print(f"   [green]OK[/green] [dim]{result_preview}[/dim]")
                             else:
                                 error_msg = result.get('content', 'Unknown error')
-                                console.print(f"   [red]✗ Failed:[/red] [red]{error_msg}[/red]")
+                                console.print(f"   [red]X Failed:[/red] [red]{error_msg}[/red]")
                 
                 elif step_type == "tool_result":
                     # Display result based on success flag
@@ -327,14 +797,14 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                         result_preview = content[:200] if content else "Success"
                         if len(content) > 200:
                             result_preview += "..."
-                        console.print(f"   [green]✓[/green] [dim]{result_preview}[/dim]")
+                        console.print(f"   [green]OK[/green] [dim]{result_preview}[/dim]")
                     else:
                         error_msg = content if content else "Unknown error"
-                        console.print(f"   [red]✗ Failed:[/red] [red]{error_msg}[/red]")
+                        console.print(f"   [red]X Failed:[/red] [red]{error_msg}[/red]")
                 
                 elif step_type == "command":
                     step_number += 1
-                    console.print(f"\n[bold magenta]⚡ Step {step_number}:[/bold magenta] [yellow]Execute command[/yellow]")
+                    console.print(f"\n[bold magenta]Step {step_number}:[/bold magenta] [yellow]Execute command[/yellow]")
                     console.print(f"   [dim]Command:[/dim] [white]{step['content']}[/white]")
                     
                     risk = step['risk']
@@ -343,19 +813,38 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                     console.print(f"   [dim]Risk:[/dim] [{risk_color}]{risk}[/{risk_color}] [dim]({risk_score}/100)[/dim]")
                     
                     if step.get('needs_confirmation'):
-                        # Ask for confirmation
-                        response = click.prompt(
-                            "\n    Approve? [y/N]",
-                            type=str,
-                            default="N"
-                        ).lower().strip()
+                        # Check auto-approve configuration
+                        safety_config = config_manager.load_safety_config()
+                        auto_approve_config = safety_config.auto_approve
                         
-                        approved = response in ['y', 'yes']
+                        # Determine if we should auto-approve
+                        should_auto_approve = False
+                        if auto_approve_config.enabled:
+                            risk_level = risk
+                            risk_levels = {'low': 1, 'medium': 2, 'high': 3, 'critical': 4}
+                            max_level = risk_levels.get(auto_approve_config.max_risk_level, 1)
+                            current_level = risk_levels.get(risk_level, 4)
+                            
+                            # Commands are not readonly, so check readonly_only
+                            if not auto_approve_config.readonly_only:
+                                should_auto_approve = current_level <= max_level
+                        
+                        if should_auto_approve:
+                            console.print(f"\n   [green]OK Auto-approved[/green] [dim](risk: {risk})[/dim]")
+                            approved = True
+                        else:
+                            # Ask for confirmation
+                            response = click.prompt(
+                                "\n    Approve? [y/N]",
+                                type=str,
+                                default="N"
+                            ).lower().strip()
+                            approved = response in ['y', 'yes']
                         
                         if not approved:
                             # Record rejection and continue (don't exit)
                             result = agent.execute_command(step['content'], approved=False)
-                            console.print(f"\n[yellow]⚠️  {result['content']}[/yellow]")
+                            console.print(f"\n[yellow]Warning: {result['content']}[/yellow]")
                             # Continue to next iteration instead of exiting
                             continue
                         
@@ -365,33 +854,58 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                             result_preview = result['content'][:200]
                             if len(result['content']) > 200:
                                 result_preview += "..."
-                            console.print(f"   [green]✓[/green] [dim]{result_preview}[/dim]")
+                            console.print(f"   [green]OK[/green] [dim]{result_preview}[/dim]")
                         else:
-                            console.print(f"   [red]✗ Failed[/red]")
+                            console.print(f"   [red]X Failed[/red]")
                 
                 elif step_type == "command_result":
                     if step['success']:
-                        result_preview = step['content'][:200]
-                        if len(step['content']) > 200:
-                            result_preview += "..."
-                        console.print(f"   [green]✓[/green] [dim]{result_preview}[/dim]")
+                        content = step['content']
+                        # Check if contains cache warning
+                        if "Warning: This command has been executed" in content:
+                            # Cache warning - special display
+                            parts = content.split("=== Command still executed, output below ===")
+                            if len(parts) == 2:
+                                warning_part = parts[0].strip()
+                                output_part = parts[1].strip()
+                                # Display warning
+                                console.print(f"\n   [yellow]{warning_part}[/yellow]")
+                                # Display actual output (shortened)
+                                result_preview = output_part[:150]
+                                if len(output_part) > 150:
+                                    result_preview += "..."
+                                console.print(f"   [green]OK[/green] [dim]{result_preview}[/dim]")
+                            else:
+                                console.print(f"   [green]OK[/green] [dim]{content[:200]}[/dim]")
+                        else:
+                            # Normal result
+                            result_preview = content[:200]
+                            if len(content) > 200:
+                                result_preview += "..."
+                            console.print(f"   [green]OK[/green] [dim]{result_preview}[/dim]")
                     else:
-                        console.print(f"   [red]✗ Failed[/red]")
+                        console.print(f"   [red]X Failed[/red]")
                 
                 elif step_type == "complete":
                     console.print()
                     console.print(Panel(
                         Text(step['content'], style="bold green"),
-                        title="[bold green]✅ Task Completed[/bold green]",
+                        title="[bold green]✓ Completed[/bold green]",
+                        title_align="left",
                         border_style="green",
                         box=box.ROUNDED
                     ))
+                
+                elif step_type == "warning":
+                    # Display warning message
+                    console.print(f"\n   [yellow]Warning: {step['content']}[/yellow]")
                 
                 elif step_type == "error":
                     console.print()
                     console.print(Panel(
                         Text(step['content'], style="bold red"),
-                        title="[bold red]❌ Error[/bold red]",
+                        title="[bold red]Error[/bold red]",
+                        title_align="left",
                         border_style="red",
                         box=box.ROUNDED
                     ))
@@ -399,24 +913,24 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
             # Summary
             console.print()
             summary = Text()
-            summary.append("✅ Completed: ", style="bold green")
+            summary.append("Completed: ", style="bold green")
             summary.append(f"{step_number} actions", style="cyan")
             summary.append(" in ", style="dim")
             summary.append(f"{iteration_number} iterations", style="cyan")
             console.print(summary)
         
         except Exception as e:
-            formatter.show_error(f"\n❌ Error during execution: {e}")
+            formatter.show_error(f"\nError during execution: {e}")
             if debug:
                 import traceback
                 traceback.print_exc()
             sys.exit(1)
         
     except KeyboardInterrupt:
-        click.echo("\n⚠️  Interrupted by user", err=True)
+        click.echo("\nWarning: Interrupted by user", err=True)
         sys.exit(130)
     except Exception as e:
-        click.echo(f"\n❌ Error: {e}", err=True)
+        click.echo(f"\nError: {e}", err=True)
         if debug:
             import traceback
             traceback.print_exc()
@@ -440,7 +954,7 @@ def execute_query(query: str, verbose: bool = False, minimal: bool = False, debu
         
         # Check if config exists
         if not config_manager.config_exists():
-            click.echo("⚠️  Configuration not found. Please run 'clis init' first.", err=True)
+            click.echo("Warning: Configuration not found. Please run 'clis init' first.", err=True)
             sys.exit(1)
         
         # Set output level based on flags
@@ -459,7 +973,7 @@ def execute_query(query: str, verbose: bool = False, minimal: bool = False, debu
         executor = CommandExecutor(config_manager)
         
         # Step 1: Load skills
-        formatter.show_info("🔍 Analyzing your request...")
+        formatter.show_info("Analyzing your request...")
         skills = router.scan_skills()
         
         if not skills:
@@ -545,10 +1059,10 @@ You MUST respond in JSON format:
             )
     
     except KeyboardInterrupt:
-        click.echo("\n\n⚠️  Interrupted by user")
+        click.echo("\n\nWarning: Interrupted by user")
         sys.exit(130)
     except Exception as e:
-        click.echo(f"\n❌ Error: {e}", err=True)
+        click.echo(f"\nError: {e}", err=True)
         if debug:
             import traceback
             traceback.print_exc()
@@ -643,7 +1157,7 @@ def _create_skill_template(name: str, config_manager: ConfigManager, tools: Opti
     # Check if skill already exists
     skill_path = get_skills_dir() / "custom" / f"{filename}.md"
     if skill_path.exists():
-        if not click.confirm(f"⚠️  Skill '{filename}' already exists. Overwrite?", default=False):
+        if not click.confirm(f"Warning: Skill '{filename}' already exists. Overwrite?", default=False):
             click.echo("Cancelled.")
             return
     
@@ -735,7 +1249,7 @@ false
         with open(skill_path, "w", encoding="utf-8") as f:
             f.write(template)
         
-        click.echo(f"✓ Skill template created: {skill_path}")
+        click.echo(f"OK Skill template created: {skill_path}")
         click.echo()
         click.echo("Next steps:")
         click.echo(f"  1. Edit the template: clis edit {filename}")
@@ -746,7 +1260,7 @@ false
         click.echo("💡 Tip: Use 'clis create \"description\" --auto' to generate with AI")
     
     except Exception as e:
-        click.echo(f"\n❌ Error: {e}", err=True)
+        click.echo(f"\nError: {e}", err=True)
         sys.exit(1)
 
 
@@ -891,7 +1405,7 @@ Generate the complete skill file content following the template format exactly.
         # Check if skill already exists
         skill_path = get_skills_dir() / "custom" / f"{filename}.md"
         if skill_path.exists():
-            if not click.confirm(f"\n⚠️  Skill '{filename}' already exists. Overwrite?", default=False):
+            if not click.confirm(f"\nWarning: Skill '{filename}' already exists. Overwrite?", default=False):
                 click.echo("Cancelled.")
                 return
         
@@ -901,8 +1415,8 @@ Generate the complete skill file content following the template format exactly.
             f.write(skill_content)
         
         click.echo()
-        click.echo(f"✓ Skill generated: {skill_name}")
-        click.echo(f"✓ Saved to: {skill_path}")
+        click.echo(f"OK Skill generated: {skill_name}")
+        click.echo(f"OK Saved to: {skill_path}")
         click.echo()
         click.echo("Next steps:")
         click.echo(f"  1. Review and edit: clis edit {filename}")
@@ -910,7 +1424,7 @@ Generate the complete skill file content following the template format exactly.
         click.echo(f"  3. Use it: clis run \"[your query]\"")
     
     except Exception as e:
-        click.echo(f"\n❌ Error: {e}", err=True)
+        click.echo(f"\nError: {e}", err=True)
         import traceback
         traceback.print_exc()
         sys.exit(1)
@@ -1019,9 +1533,9 @@ Generate commands based on the user's request.
     
     # Show tool calls if requested
     if show_tool_calls and tool_calls_history:
-        formatter.show_info(f"\n📋 Tool calls made: {len(tool_calls_history)}")
+        formatter.show_info(f"\nTool calls made: {len(tool_calls_history)}")
         for i, call in enumerate(tool_calls_history, 1):
-            status = "✓" if call["success"] else "✗"
+            status = "OK" if call["success"] else "X"
             formatter.show_info(f"  {status} {i}. {call['tool']}({call['parameters']})")
             if show_tool_calls:
                 if call["success"]:
