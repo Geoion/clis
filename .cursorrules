@@ -1,0 +1,86 @@
+# Cursor Rules for CLIS Project
+
+## Documentation Management
+
+### CRITICAL: Do NOT Create Extra Markdown Files
+
+**Rule**: NEVER create any `.md` files unless EXPLICITLY requested by the user.
+
+**Allowed markdown files** (can be created/updated):
+- `README.md` - Project overview and usage guide
+- `docs/TODO.md` - Main TODO/task list
+
+**FORBIDDEN** (do NOT create without explicit request):
+- Any summary files (e.g., `COMPLETION_SUMMARY.md`, `SUMMARY.md`)
+- Any report files (e.g., `TEST_REPORT.md`, `ANALYSIS.md`)
+- Any discovery files (e.g., `DISCOVERY.md`, `FINDINGS.md`)
+- Any daily/dated files (e.g., `TODAY_SUMMARY_*.md`, `2026-01-21.md`)
+- Any other documentation files not explicitly requested
+
+### Why This Rule Exists
+1. **Avoid clutter** - Too many documentation files make the repo messy
+2. **Single source of truth** - README.md and TODO.md should be sufficient
+3. **User control** - User should decide what documentation to create
+4. **Git history** - Unnecessary files pollute git history
+
+### What to Do Instead
+When you want to document something:
+1. **Update README.md** - For user-facing documentation
+2. **Update docs/TODO.md** - For task tracking and progress
+3. **Add comments in code** - For technical documentation
+4. **Ask the user first** - If you think a new document is needed
+
+### Examples
+
+❌ **WRONG** - Creating files without request:
+```python
+# DO NOT DO THIS
+write_file("COMPLETION_SUMMARY.md", "...")
+write_file("TEST_REPORT.md", "...")
+write_file("TODAY_SUMMARY.md", "...")
+```
+
+✅ **CORRECT** - Updating allowed files:
+```python
+# This is OK
+update_file("README.md", "...")
+update_file("docs/TODO.md", "...")
+```
+
+✅ **CORRECT** - Asking first:
+```
+I think we should create a deployment guide. 
+Should I create docs/DEPLOYMENT.md or add it to README.md?
+```
+
+---
+
+## Code Organization
+
+### File Creation
+- Only create new `.py` files when implementing new features
+- Prefer editing existing files over creating new ones
+- Keep code modular but avoid over-fragmentation
+
+### Testing
+- Test files should go in `tests/` directory (when created)
+- Temporary test files should be cleaned up after use
+
+---
+
+## Communication
+
+### When Working on Tasks
+- Update TODO.md to track progress
+- Use code comments for technical details
+- Keep user informed via chat, not via creating documentation files
+
+### Completion Reports
+- Provide completion summary in chat
+- Update TODO.md with completion status
+- Do NOT create separate summary files
+
+---
+
+**Last Updated**: 2026-01-21
+**Maintained By**: User preferences
