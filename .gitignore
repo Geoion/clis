@@ -59,3 +59,6 @@ htmlcov/
 # Build artifacts
 *.whl
 *.tar.gz
+
+# CLIS memory
+.clis_memory/
