@@ -7,7 +7,7 @@ import click
 
 @click.command(name="version")
 def version() -> None:
-    """显示版本信息"""
+    """Show version information"""
     from clis import __version__
     from clis.utils.platform import get_platform, get_clis_dir
     
@@ -18,7 +18,7 @@ def version() -> None:
 
 @click.command(name="doctor")
 def doctor() -> None:
-    """检查 CLIS 环境和配置"""
+    """Check CLIS environment and configuration"""
     import platform
     import sys
     from pathlib import Path
@@ -144,7 +144,7 @@ def doctor() -> None:
     help="LLM provider to use",
 )
 def init(provider: str = None) -> None:
-    """初始化 CLIS 配置 (交互式向导)
+    """Initialize CLIS configuration (interactive wizard)
     
     This will create configuration files in ~/.clis/config/ with
     detailed comments in both English and Chinese.
