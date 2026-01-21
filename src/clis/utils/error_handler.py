@@ -7,7 +7,7 @@ Provides consistent error handling, logging, and user feedback across the applic
 import sys
 import traceback
 from functools import wraps
-from typing import Callable, Any, Optional
+from typing import Callable, Any, Optional, List, Dict
 
 import click
 
@@ -230,3 +230,186 @@ def handle_tool_error(error: Exception, tool_name: str) -> str:
         return f"Tool {tool_name} timed out. Try increasing timeout or simplifying the operation."
     else:
         return f"Error in {tool_name}: {str(error)}"
+
+
+class ErrorMessageBuilder:
+    """Build user-friendly error messages."""
+    
+    # Common error resolution suggestions
+    ERROR_SUGGESTIONS = {
+        "ModuleNotFoundError": [
+            "Check if required dependencies are installed",
+            "Run: pip install -e .",
+            "Check if Python environment is correct"
+        ],
+        "FileNotFoundError": [
+            "Confirm file path is correct",
+            "Check if file exists",
+            "Try using absolute path"
+        ],
+        "PermissionError": [
+            "Check file/directory permissions",
+            "Try using sudo (if needed)",
+            "Confirm current user has access permissions"
+        ],
+        "ConnectionError": [
+            "Check network connection",
+            "Confirm API endpoint is accessible",
+            "Check firewall settings"
+        ],
+        "TimeoutError": [
+            "Increase timeout duration",
+            "Simplify operation",
+            "Check network connection"
+        ],
+        "JSONDecodeError": [
+            "Check if JSON format is correct",
+            "Confirm file encoding is UTF-8",
+            "Use JSON validation tool to check"
+        ],
+        "KeyError": [
+            "Check if configuration file is complete",
+            "Run 'clis init' to reinitialize",
+            "Check documentation for required configuration items"
+        ],
+        "ValueError": [
+            "Check if parameter values are valid",
+            "Check help documentation for parameter format",
+            "Try using default values"
+        ],
+    }
+    
+    @classmethod
+    def build(cls, error: Exception, context: Optional[str] = None) -> str:
+        """
+        Build detailed error message.
+        
+        Args:
+            error: Exception object
+            context: Context information
+            
+        Returns:
+            Formatted error message
+        """
+        error_type = type(error).__name__
+        error_message = str(error)
+        
+        # Basic error information
+        output = f"""
+╭{'─' * 68}╮
+│ ❌ Error: {error_type:<60} │
+╰{'─' * 68}╯
+
+📝 Error Message:
+   {error_message}
+"""
+        
+        # Add context
+        if context:
+            output += f"""
+📍 Location:
+   {context}
+"""
+        
+        # Add suggestions
+        suggestions = cls.ERROR_SUGGESTIONS.get(error_type, [])
+        if suggestions:
+            output += f"""
+💡 Suggestions:
+"""
+            for i, suggestion in enumerate(suggestions, 1):
+                output += f"   {i}. {suggestion}\n"
+        
+        # Add help links
+        output += f"""
+📚 Get Help:
+   - View documentation: https://github.com/eskiyin/clis#readme
+   - Run diagnostics: clis doctor
+   - View detailed logs: ~/.clis/logs/clis.log
+"""
+        
+        return output
+    
+    @classmethod
+    def build_tool_error(cls, tool_name: str, error: Exception, params: dict) -> str:
+        """
+        Build tool error message.
+        
+        Args:
+            tool_name: Tool name
+            error: Exception object
+            params: Tool parameters
+            
+        Returns:
+            Formatted error message
+        """
+        error_type = type(error).__name__
+        
+        output = f"""
+╭{'─' * 68}╮
+│ ❌ Tool Execution Failed: {tool_name:<48} │
+╰{'─' * 68}╯
+
+📝 Error Type: {error_type}
+📝 Error Message: {str(error)}
+
+🔧 Call Parameters:
+"""
+        for key, value in params.items():
+            output += f"   - {key}: {value}\n"
+        
+        # Tool-specific suggestions
+        tool_suggestions = cls._get_tool_suggestions(tool_name, error_type, params)
+        if tool_suggestions:
+            output += f"""
+💡 Suggestions:
+"""
+            for i, suggestion in enumerate(tool_suggestions, 1):
+                output += f"   {i}. {suggestion}\n"
+        
+        output += f"""
+📚 View Tool Documentation:
+   clis run "help with {tool_name} tool"
+   Or view: docs/TOOL_PARAMETERS_GUIDE.md
+"""
+        
+        return output
+    
+    @classmethod
+    def _get_tool_suggestions(cls, tool_name: str, error_type: str, params: dict) -> List[str]:
+        """Get tool-specific suggestions."""
+        suggestions = []
+        
+        # File-related tools
+        if 'file' in tool_name or 'edit' in tool_name:
+            if error_type == "FileNotFoundError":
+                suggestions.append(f"Confirm file path is correct: {params.get('path', params.get('file', 'N/A'))}")
+                suggestions.append("Use 'clis run \"list files\"' to see available files")
+            elif error_type == "PermissionError":
+                suggestions.append("Check file permissions")
+                suggestions.append("Confirm file is not read-only")
+        
+        # Git-related tools
+        elif 'git' in tool_name:
+            if "not a git repository" in str(params):
+                suggestions.append("Confirm current directory is a Git repository")
+                suggestions.append("Run 'git init' to initialize repository")
+            elif error_type == "subprocess":
+                suggestions.append("Confirm git is installed")
+                suggestions.append("Check git configuration")
+        
+        # Docker-related tools
+        elif 'docker' in tool_name:
+            suggestions.append("Confirm Docker is running")
+            suggestions.append("Run 'docker ps' to test Docker connection")
+            suggestions.append("Check if Docker Desktop is started")
+        
+        # General suggestions
+        if not suggestions:
+            suggestions = cls.ERROR_SUGGESTIONS.get(error_type, [
+                "Check if parameters are correct",
+                "View tool documentation",
+                "Try using --debug to see detailed information"
+            ])
+        
+        return suggestions
