@@ -13,13 +13,13 @@ from clis.config import ConfigManager
 
 @click.group(name="config")
 def config_cli():
-    """配置管理 (Configuration management)"""
+    """Configuration management"""
     pass
 
 
 @config_cli.command(name="show")
 def show_config() -> None:
-    """显示所有配置值"""
+    """Show all configuration values"""
     console = Console()
     config_manager = ConfigManager()
     
@@ -62,7 +62,7 @@ def show_config() -> None:
 @config_cli.command(name="get")
 @click.argument("key")
 def get_config(key: str) -> None:
-    """获取配置值
+    """Get configuration value
     
     Examples:
         clis config get llm.provider
@@ -103,7 +103,7 @@ def get_config(key: str) -> None:
 @click.argument("key")
 @click.argument("value")
 def set_config(key: str, value: str) -> None:
-    """设置配置值
+    """Set configuration value
     
     Examples:
         clis config set llm.temperature 0.7
@@ -117,7 +117,7 @@ def set_config(key: str, value: str) -> None:
 @config_cli.command(name="reset")
 @click.option("--confirm", is_flag=True, help="Skip confirmation")
 def reset_config(confirm: bool) -> None:
-    """重置配置为默认值"""
+    """Reset configuration to default values"""
     if not confirm:
         if not click.confirm("Are you sure you want to reset all configuration?"):
             click.echo("Cancelled.")
@@ -135,7 +135,7 @@ def reset_config(confirm: bool) -> None:
 
 @config_cli.command(name="path")
 def show_config_path() -> None:
-    """显示配置目录路径"""
+    """Show configuration directory path"""
     from clis.utils.platform import get_clis_dir
     
     config_dir = get_clis_dir() / "config"
