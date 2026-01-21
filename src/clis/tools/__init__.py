@@ -21,12 +21,19 @@ from clis.tools.builtin import (
 from clis.tools.filesystem import (
     DeleteFileTool,
     EditFileTool,
+    SearchReplaceTool,
+    InsertCodeTool,
+    DeleteLinesTool,
     GrepTool,
     ReadLintsTool,
     SearchFilesTool,
     FileTreeTool,
     WriteFileTool,
     GetFileInfoTool,
+    CodebaseSearchTool,
+    FindDefinitionTool,
+    FindReferencesTool,
+    GetSymbolsTool,
 )
 
 # File chunking
@@ -88,9 +95,16 @@ __all__ = [
     # Filesystem
     "DeleteFileTool",
     "EditFileTool",
+    "SearchReplaceTool",
+    "InsertCodeTool",
+    "DeleteLinesTool",
     "GrepTool",
     "ReadLintsTool",
     "SearchFilesTool",
+    "CodebaseSearchTool",
+    "FindDefinitionTool",
+    "FindReferencesTool",
+    "GetSymbolsTool",
     "FileTreeTool",
     "WriteFileTool",
     "GetFileInfoTool",
