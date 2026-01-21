@@ -50,6 +50,7 @@ class OllamaProvider(LLMProvider):
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        max_reasoning_tokens: Optional[int] = None,
     ) -> str:
         """
         Generate text from prompt using Ollama.
