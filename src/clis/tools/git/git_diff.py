@@ -27,6 +27,10 @@ class GitDiffTool(Tool):
         return {
             "type": "object",
             "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Specific file path to show diff for (relative to git root). Alias for 'file'."
+                },
                 "file": {
                     "type": "string",
                     "description": "Specific file path to show diff for (relative to git root)"
@@ -54,7 +58,7 @@ class GitDiffTool(Tool):
             "required": []
         }
     
-    def execute(self, file: Optional[str] = None, files: Optional[list] = None, 
+    def execute(self, path: Optional[str] = None, file: Optional[str] = None, files: Optional[list] = None, 
                 staged: bool = False, commit: Optional[str] = None, unified: int = 3) -> ToolResult:
         """Execute git diff."""
         try:
@@ -65,6 +69,10 @@ class GitDiffTool(Tool):
             
             if commit:
                 cmd.append(commit)
+            
+            # Support 'path' as alias for 'file' (for consistency with other tools)
+            if path and not file:
+                file = path
             
             # Support both 'file' (singular) and 'files' (plural)
             if files:
