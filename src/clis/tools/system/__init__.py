@@ -9,6 +9,7 @@ from clis.tools.system.list_processes import ListProcessesTool
 from clis.tools.system.run_terminal_cmd import RunTerminalCmdTool
 from clis.tools.system.list_terminals import ListTerminalsTool
 from clis.tools.system.read_terminal_output import ReadTerminalOutputTool
+from clis.tools.system.start_service import StartServiceTool
 
 __all__ = [
     "SystemInfoTool",
@@ -18,4 +19,5 @@ __all__ = [
     "RunTerminalCmdTool",
     "ListTerminalsTool",
     "ReadTerminalOutputTool",
+    "StartServiceTool",
 ]
