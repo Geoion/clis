@@ -239,9 +239,39 @@ class ContextManagementConfig(BaseModel):
     )
 
 
+class PEVLModelsConfig(BaseModel):
+    """PEVL 模型配置"""
+    
+    analyzer: str = Field(default="deepseek-r1", description="Task analyzer model")
+    planner: str = Field(default="deepseek-r1", description="Planning model")
+    executor: str = Field(default="deepseek-chat", description="Execution model")
+    verifier: str = Field(default="deepseek-r1", description="Verification model")
+
+
+class PEVLReplanConfig(BaseModel):
+    """PEVL 重规划配置"""
+    
+    enabled: bool = Field(default=True, description="Enable replanning on failure")
+    min_confidence: float = Field(default=0.6, description="Minimum confidence to trigger replan")
+    max_rounds: int = Field(default=3, description="Maximum PEVL loop rounds")
+
+
+class PEVLConfig(BaseModel):
+    """PEVL (Plan-Execute-Verify Loop) 配置"""
+    
+    enabled: bool = Field(default=True, description="Enable PEVL mode")
+    cost_limit: float = Field(default=50.0, description="Max cost per task in USD")
+    models: PEVLModelsConfig = Field(default_factory=PEVLModelsConfig)
+    replan: PEVLReplanConfig = Field(default_factory=PEVLReplanConfig)
+
+
 class AgentConfig(BaseModel):
     """Agent execution configuration."""
     
+    default_mode: str = Field(
+        default="auto",
+        description="Default execution mode: auto | fast | plan | react"
+    )
     max_iterations: Union[str, int] = Field(
         default="auto",
         description="Maximum iterations for ReAct agent ('auto' or integer)"
@@ -250,6 +280,7 @@ class AgentConfig(BaseModel):
         default=100,
         description="Safety limit for auto mode (prevents infinite loops)"
     )
+    pevl: PEVLConfig = Field(default_factory=PEVLConfig, description="PEVL mode configuration")
 
 class SafetyConfig(BaseModel):
     """Safety configuration (safety.yaml)."""
