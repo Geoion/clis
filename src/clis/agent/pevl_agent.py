@@ -168,16 +168,30 @@ class PEVLAgent:
                         "content": f"📚 Loaded {len(similar_tasks)} similar tasks from history"
                     }
                 
-                # Format historical tasks for planning
+                # Format historical tasks for planning (efficient: use pre-extracted failure reasons)
                 self.similar_tasks_context = "\n\n## 📚 Historical Experience\n\n"
-                self.similar_tasks_context += "Similar tasks from history (learn from past experiences):\n\n"
+                self.similar_tasks_context += "Similar tasks from history (learn from past experiences and avoid repeating mistakes):\n\n"
                 for i, task in enumerate(similar_tasks, 1):
-                    task_id = task.get('task_id', 'unknown')
-                    content = task.get('content', '')[:300]  # First 300 chars
-                    status = task.get('metadata', {}).get('status', 'unknown')
+                    # Handle both tuple and dict formats
+                    if isinstance(task, tuple):
+                        task_id = task[0]
+                        similarity_score = task[1]
+                        description = task[2][:200]  # First 200 chars
+                        failure_reason = None
+                    else:
+                        task_id = task.get('task_id', 'unknown')
+                        similarity_score = task.get('similarity', 0.0)
+                        description = task.get('description', '')[:200]
+                        failure_reason = task.get('failure_reason')  # Pre-extracted from metadata
                     
-                    self.similar_tasks_context += f"**Task {i}** (Status: {status}):\n"
-                    self.similar_tasks_context += f"{content}\n\n"
+                    self.similar_tasks_context += f"**Task {i}** (Similarity: {similarity_score:.2f}):\n"
+                    self.similar_tasks_context += f"  Description: {description}\n"
+                    
+                    # Add failure reason if available (already extracted, no need to parse file!)
+                    if failure_reason:
+                        self.similar_tasks_context += f"  ⚠️ Failed: {failure_reason}\n"
+                    
+                    self.similar_tasks_context += "\n"
                 
                 logger.info(f"[PEVL] Loaded {len(similar_tasks)} historical tasks for context")
         except Exception as e:
@@ -1689,15 +1703,21 @@ Return JSON:
     
     def _build_fast_planning_prompt(self, query: str) -> str:
         """Build fast planning prompt"""
+        # Add historical context if available
+        historical_context = ""
+        if hasattr(self, 'similar_tasks_context') and self.similar_tasks_context:
+            historical_context = self.similar_tasks_context + "\n\n**IMPORTANT**: Learn from past failures above! If similar tasks failed due to specific issues (e.g., port conflicts, missing dependencies), avoid those mistakes in your plan.\n\n"
+        
         return f"""You are a task planning expert. Quickly generate a concise execution plan for the following task.
 
 Task: {query}
 
-Requirements:
+{historical_context}Requirements:
 - Break down task into 2-4 clear steps
 - Select appropriate tools for each step
 - Keep the plan concise and practical
 - **CRITICAL**: Use EXACT parameter names from tool definitions below
+- **LEARN FROM HISTORY**: If historical tasks above show failures (e.g., port 5000 occupied), avoid repeating those mistakes
 
 Available tools and their parameters:
 {self._get_tool_descriptions(max_tools=30)}
@@ -1890,24 +1910,37 @@ Requirements:
             f"Completed: {summary}" if success else f"Failed: {summary}"
         )
         
+        # Extract failure reason for failed tasks (max 100 chars)
+        failure_reason = None
+        if not success:
+            # Extract concise failure reason from summary
+            failure_reason = summary[:100].strip()
+        
         self.memory_manager.complete_task(
             self.current_task_id,
-            success=success
+            success=success,
+            failure_reason=failure_reason
         )
         
-        # Index task
-        if success:
-            try:
-                if self.episodic_memory.task_file and self.episodic_memory.task_file.exists():
-                    task_content = self.episodic_memory.task_file.read_text(encoding='utf-8')[:500]
-                    self.vector_search.index_task(
-                        self.current_task_id,
-                        task_content,
-                        metadata={'status': 'completed', 'mode': 'pevl'}
-                    )
-                    logger.info(f"[PEVL] Task indexed: {self.current_task_id}")
-            except Exception as e:
-                logger.warning(f"Failed to index task: {e}")
+        # Index task (both success and failure)
+        try:
+            if self.episodic_memory.task_file and self.episodic_memory.task_file.exists():
+                task_content = self.episodic_memory.task_file.read_text(encoding='utf-8')[:500]
+                metadata = {
+                    'status': 'completed' if success else 'failed',
+                    'mode': 'pevl'
+                }
+                if failure_reason:
+                    metadata['failure_reason'] = failure_reason
+                
+                self.vector_search.index_task(
+                    self.current_task_id,
+                    task_content,
+                    metadata=metadata
+                )
+                logger.info(f"[PEVL] Task indexed: {self.current_task_id}")
+        except Exception as e:
+            logger.warning(f"Failed to index task: {e}")
         
         stats = self.working_memory.get_stats()
         logger.info(f"[PEVL] Task completed. Stats: {stats}")
