@@ -161,13 +161,37 @@ auto_approve:
 
 # Agent Configuration
 agent:
+  # Default execution mode
+  # Options: auto (R1 decides), fast (quick), plan (plan-execute), react (step-by-step)
+  default_mode: auto
+  
   # Maximum iterations for ReAct agent
-  # Options: 
   max_iterations: auto
   
   # Safety limit for auto mode
   # Prevents infinite loops when Agent doesn't stop properly
   auto_iterations_base: 100
   
-  # Note: auto_iterations_per_file is deprecated
-  # In auto mode, Agent decides when to stop based on task completion
+  # PEVL (Plan-Execute-Verify Loop) Configuration
+  pevl:
+    enabled: true
+    
+    # Cost limit per task (in USD)
+    cost_limit: 50.0
+    
+    # Model configuration for each phase
+    models:
+      analyzer: deepseek-r1      # Task analysis
+      planner: deepseek-r1       # Planning
+      executor: deepseek-chat    # Execution (or qwen-2.5-coder-32b)
+      verifier: deepseek-r1      # Verification
+    
+    # Replanning configuration
+    replan:
+      enabled: true
+      min_confidence: 0.6        # Minimum confidence to replan
+      max_rounds: 3              # Maximum loop rounds (1-5, recommended: 3)
+      
+      # Loop detection in Phase 2
+      enable_loop_detection: true
+      max_iterations_per_round: 10  # Max iterations per round
