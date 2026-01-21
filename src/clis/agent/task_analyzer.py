@@ -1,12 +1,12 @@
 """
-Task Analyzer - 使用 R1 分析任务特征并推荐执行策略
+Task Analyzer - Use R1 to analyze task characteristics and recommend execution strategies
 
-核心功能:
-- 分析任务复杂度
-- 评估不确定性
-- 识别任务类型
-- 推荐执行模式
-- 推荐模型组合
+Core features:
+- Analyze task complexity
+- Assess uncertainty
+- Identify task type
+- Recommend execution mode
+- Recommend model combination
 """
 
 from typing import Dict, Any, Optional
@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 
 @dataclass
 class TaskAnalysis:
-    """任务分析结果"""
+    """Task analysis result"""
     complexity: str  # trivial | simple | medium | complex
     uncertainty: str  # low | medium | high
     task_type: str  # file_ops | code_gen | deployment | git | explore | other
@@ -32,7 +32,7 @@ class TaskAnalysis:
     model_config: Dict[str, str]
     
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
+        """Convert to dictionary"""
         return {
             'complexity': self.complexity,
             'uncertainty': self.uncertainty,
@@ -46,135 +46,135 @@ class TaskAnalysis:
 
 class TaskAnalyzer:
     """
-    任务分析器
+    Task Analyzer
     
-    使用 DeepSeek-R1 的推理能力分析任务特征并推荐最优执行策略
+    Uses DeepSeek-R1's reasoning capabilities to analyze task characteristics and recommend optimal execution strategies
     """
     
-    # 分析提示词模板
-    ANALYSIS_PROMPT_TEMPLATE = """分析这个任务并选择最优执行模式。
+    # Analysis prompt template
+    ANALYSIS_PROMPT_TEMPLATE = """Analyze this task and select the optimal execution mode.
 
-任务: {query}
+Task: {query}
 
-请进行**深度分析**:
+Please perform **deep analysis**:
 
-## 1. 复杂度评估
-- 预计步骤数: 多少步能完成?
-- 涉及的技术栈: (Python, Flask, Git, Docker, etc)
-- 是否有子任务或依赖: ?
-- 每步的复杂度: (简单工具调用 vs 复杂逻辑)
+## 1. Complexity Assessment
+- Estimated number of steps: How many steps to complete?
+- Technology stack involved: (Python, Flask, Git, Docker, etc)
+- Are there subtasks or dependencies?
+- Complexity of each step: (simple tool calls vs complex logic)
 
-## 2. 不确定性评估  
-- **环境依赖**: 是否依赖端口、权限、路径、版本等?
-- **可能的错误**: 哪些地方容易出错?
-- **验证需求**: 需要验证哪些关键点?
-- **风险等级**: 高风险操作 (删除、部署) 还是低风险 (读取、查询)?
+## 2. Uncertainty Assessment  
+- **Environment dependencies**: Does it depend on ports, permissions, paths, versions, etc?
+- **Possible errors**: Where are errors likely to occur?
+- **Verification requirements**: What key points need verification?
+- **Risk level**: High-risk operations (delete, deploy) or low-risk (read, query)?
 
-## 3. 任务类型识别
-- **主要类别**: 
-  - file_ops: 文件读写、目录操作
-  - code_gen: 代码生成、项目创建
-  - deployment: 服务部署、容器化
-  - git: Git 版本控制操作
-  - explore: 信息探索、调查分析
-  - other: 其他
+## 3. Task Type Identification
+- **Main categories**: 
+  - file_ops: File read/write, directory operations
+  - code_gen: Code generation, project creation
+  - deployment: Service deployment, containerization
+  - git: Git version control operations
+  - explore: Information exploration, investigation analysis
+  - other: Other
   
-- **特点**:
-  - 是否需要创造性? (生成代码 vs 标准操作)
-  - 是否有标准流程? (部署流程 vs 自由探索)
-  - 是否需要交互? (探索未知 vs 执行已知)
+- **Characteristics**:
+  - Does it require creativity? (code generation vs standard operations)
+  - Is there a standard process? (deployment process vs free exploration)
+  - Does it require interaction? (explore unknown vs execute known)
 
-## 4. 模式推荐
+## 4. Mode Recommendation
 
-基于深度分析,从以下4个选项中选择**最优方案**:
+Based on deep analysis, select the **optimal solution** from the following 4 options:
 
-### Option A: Direct Execute (单次 Chat 调用)
-- **适用条件**: 
-  - 步骤数 = 1
-  - 复杂度 = trivial
-  - 不确定性 = low
-  - 标准工具调用
+### Option A: Direct Execute (single Chat call)
+- **Applicable conditions**: 
+  - Number of steps = 1
+  - Complexity = trivial
+  - Uncertainty = low
+  - Standard tool calls
   
-- **成本**: $0.8
-- **速度**: 极快 (5s)
-- **成功率**: 90%
+- **Cost**: $0.8
+- **Speed**: Very fast (5s)
+- **Success rate**: 90%
 
-- **示例**: 
-  - "创建一个空文件"
-  - "读取文件内容"
-  - "查看当前目录"
+- **Examples**: 
+  - "Create an empty file"
+  - "Read file content"
+  - "View current directory"
 
-### Option B: Fast Plan-Execute (Chat 规划+盲目执行)
-- **适用条件**:
-  - 步骤数 = 2-3
-  - 复杂度 = simple
-  - 不确定性 = low
-  - 确定性强,不需验证
+### Option B: Fast Plan-Execute (Chat planning + blind execution)
+- **Applicable conditions**:
+  - Number of steps = 2-3
+  - Complexity = simple
+  - Uncertainty = low
+  - High certainty, no verification needed
   
-- **成本**: $3
-- **速度**: 快 (10s)
-- **成功率**: 85%
+- **Cost**: $3
+- **Speed**: Fast (10s)
+- **Success rate**: 85%
 
-- **示例**:
-  - "创建项目目录结构"
-  - "简单的 Git add+commit"
-  - "读取多个文件"
+- **Examples**:
+  - "Create project directory structure"
+  - "Simple Git add+commit"
+  - "Read multiple files"
 
-### Option C: Hybrid PEVL (R1 规划 + Chat 执行 + R1 验证)
-- **适用条件**:
-  - 步骤数 = 3-6
-  - 复杂度 = medium|complex
-  - 不确定性 = medium|high
-  - 需要验证和错误处理
+### Option C: Hybrid PEVL (R1 planning + Chat execution + R1 verification)
+- **Applicable conditions**:
+  - Number of steps = 3-6
+  - Complexity = medium|complex
+  - Uncertainty = medium|high
+  - Requires verification and error handling
   
-- **成本**: $15-25
-- **速度**: 中 (25-40s)
-- **成功率**: 90-95%
+- **Cost**: $15-25
+- **Speed**: Medium (25-40s)
+- **Success rate**: 90-95%
 
-- **示例**:
-  - "部署 Flask 服务"
-  - "创建 Django 项目"
-  - "Docker 容器化应用"
+- **Examples**:
+  - "Deploy Flask service"
+  - "Create Django project"
+  - "Docker containerize application"
 
-### Option D: Explore ReAct (Chat 自由探索)
-- **适用条件**:
-  - 探索性任务
-  - 目标不明确
-  - 需要信息收集
+### Option D: Explore ReAct (Chat free exploration)
+- **Applicable conditions**:
+  - Exploratory tasks
+  - Unclear objectives
+  - Requires information gathering
   
-- **成本**: $10-20
-- **速度**: 慢 (30-60s)
-- **成功率**: 70-80%
+- **Cost**: $10-20
+- **Speed**: Slow (30-60s)
+- **Success rate**: 70-80%
 
-- **示例**:
-  - "分析这个项目的架构"
-  - "调查为什么测试失败"
-  - "找到性能瓶颈"
+- **Examples**:
+  - "Analyze this project's architecture"
+  - "Investigate why tests failed"
+  - "Find performance bottlenecks"
 
-## 5. 模型配置推荐
+## 5. Model Configuration Recommendation
 
-基于任务特点,推荐模型组合:
+Based on task characteristics, recommend model combination:
 
 - **Planner**: 
-  - 复杂任务 → deepseek-r1
-  - 简单任务 → deepseek-chat
+  - Complex tasks → deepseek-r1
+  - Simple tasks → deepseek-chat
 
 - **Executor**:
-  - 代码生成多 → qwen-2.5-coder-32b
-  - 通用任务 → deepseek-chat
+  - Heavy code generation → qwen-2.5-coder-32b
+  - General tasks → deepseek-chat
   
 - **Verifier**:
-  - 关键任务 → deepseek-r1
-  - 简单任务 → none (跳过)
+  - Critical tasks → deepseek-r1
+  - Simple tasks → none (skip)
 
-## 最终决策
+## Final Decision
 
-请充分推理,综合考虑:
-- 任务特点
-- 成本效益
-- 用户期望 (快速 vs 可靠)
+Please reason thoroughly, considering comprehensively:
+- Task characteristics
+- Cost-effectiveness
+- User expectations (fast vs reliable)
 
-返回 JSON:
+Return JSON:
 ```json
 {{
   "complexity": "trivial|simple|medium|complex",
@@ -182,7 +182,7 @@ class TaskAnalyzer:
   "task_type": "file_ops|code_gen|deployment|git|explore|other",
   "estimated_steps": 3,
   "recommended_mode": "direct|fast|hybrid|explore",
-  "reasoning": "详细推理过程,说明为什么选择这个模式...",
+  "reasoning": "Detailed reasoning process, explaining why this mode was chosen...",
   "model_config": {{
     "planner": "deepseek-r1|deepseek-chat",
     "executor": "qwen-2.5-coder-32b|deepseek-chat",
@@ -191,27 +191,27 @@ class TaskAnalyzer:
 }}
 ```
 
-请进行深度推理,给出最优推荐。
+Please perform deep reasoning and provide the optimal recommendation.
 """
     
     def __init__(self, agent: Agent):
         """
-        初始化分析器
+        Initialize analyzer
         
         Args:
-            agent: LLM Agent (应该配置为 DeepSeek-R1)
+            agent: LLM Agent (should be configured as DeepSeek-R1)
         """
         self.agent = agent
     
     def analyze(self, query: str) -> TaskAnalysis:
         """
-        分析任务并推荐执行策略
+        Analyze task and recommend execution strategy
         
         Args:
-            query: 用户查询
+            query: User query
             
         Returns:
-            TaskAnalysis 对象
+            TaskAnalysis object
         """
         prompt = self.ANALYSIS_PROMPT_TEMPLATE.format(query=query)
         
@@ -220,7 +220,7 @@ class TaskAnalyzer:
             response = self.agent.generate(prompt)
             logger.debug(f"Analysis response length: {len(response)}")
             
-            # 解析 JSON 响应
+            # Parse JSON response
             analysis = self._parse_response(response)
             
             if analysis:
@@ -235,21 +235,21 @@ class TaskAnalyzer:
         except Exception as e:
             logger.error(f"Task analysis failed: {e}")
         
-        # 降级到默认配置
+        # Fallback to default configuration
         logger.warning("Using default analysis due to parsing failure")
         return self._get_default_analysis(query)
     
     def _parse_response(self, response: str) -> Optional[TaskAnalysis]:
         """
-        解析 R1 的分析响应
+        Parse R1 analysis response
         
         Args:
-            response: LLM 响应文本
+            response: LLM response text
             
         Returns:
-            TaskAnalysis 对象或 None
+            TaskAnalysis object or None
         """
-        # 尝试提取 JSON
+        # Try to extract JSON
         json_match = re.search(r'```json\s*\n(.*?)\n```', response, re.DOTALL)
         if not json_match:
             json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
@@ -281,18 +281,18 @@ class TaskAnalyzer:
     
     def _get_default_analysis(self, query: str) -> TaskAnalysis:
         """
-        获取默认分析结果 (降级方案)
+        Get default analysis result (fallback solution)
         
         Args:
-            query: 用户查询
+            query: User query
             
         Returns:
-            默认的 TaskAnalysis
+            Default TaskAnalysis
         """
-        # 简单的启发式规则
+        # Simple heuristic rules
         query_lower = query.lower()
         
-        # 判断复杂度
+        # Determine complexity
         if any(word in query_lower for word in ['flask', 'django', 'docker', 'deploy']):
             complexity = 'medium'
             estimated_steps = 4
@@ -303,13 +303,13 @@ class TaskAnalyzer:
             complexity = 'medium'
             estimated_steps = 3
         
-        # 判断不确定性
+        # Determine uncertainty
         if any(word in query_lower for word in ['port', 'service', 'server', 'deploy']):
             uncertainty = 'high'
         else:
             uncertainty = 'low'
         
-        # 推荐模式
+        # Recommend mode
         if complexity == 'simple' and uncertainty == 'low' and estimated_steps <= 2:
             recommended_mode = 'fast'
         else:
