@@ -156,14 +156,14 @@ class EditFileTool(Tool):
             
             # Build output message
             if dry_run:
-                output = f"🔍 DRY RUN - Preview of changes to: {path}\n\n"
-                output += f"⚠️  File will NOT be modified (dry_run=true)\n\n"
+                output = f"DRY RUN - Preview of changes to: {path}\n\n"
+                output += f"Warning: File will NOT be modified (dry_run=true)\n\n"
             else:
                 # Write new content (only if not dry run)
                 with open(path_obj, 'w', encoding='utf-8') as f:
                     f.write(new_file_content)
                 
-                output = f"✓ File edited successfully: {path}\n\n"
+                output = f"File edited successfully: {path}\n\n"
             
             output += f"Changes: +{lines_added} -{lines_removed} lines\n\n"
             output += diff_output
@@ -230,7 +230,7 @@ class EditFileTool(Tool):
             
             if line.startswith('---') or line.startswith('+++'):
                 # File headers
-                output.append(f"📄 {line}")
+                output.append(f"{line}")
             elif line.startswith('@@'):
                 # Hunk header
                 output.append(f"\n{line}")
