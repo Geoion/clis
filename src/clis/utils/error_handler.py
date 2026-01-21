@@ -347,10 +347,10 @@ class ErrorMessageBuilder:
         
         output = f"""
 ╭{'─' * 68}╮
-│ ❌ Tool Execution Failed: {tool_name:<48} │
+│ Tool Execution Failed: {tool_name:<50} │
 ╰{'─' * 68}╯
 
-📝 Error Type: {error_type}
+Error Type: {error_type}
 📝 Error Message: {str(error)}
 
 🔧 Call Parameters:
