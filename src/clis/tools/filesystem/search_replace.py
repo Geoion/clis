@@ -62,8 +62,8 @@ class SearchReplaceTool(Tool):
                 },
                 "dry_run": {
                     "type": "boolean",
-                    "description": "Preview changes without modifying files (default: true for safety)",
-                    "default": True
+                    "description": "Preview changes without modifying files (default: false when auto-approve enabled)",
+                    "default": False
                 },
                 "max_files": {
                     "type": "integer",
@@ -96,7 +96,7 @@ class SearchReplaceTool(Tool):
         file_pattern: str = "*",
         regex: bool = False,
         ignore_case: bool = False,
-        dry_run: bool = True,
+        dry_run: bool = False,
         max_files: int = 100
     ) -> ToolResult:
         """
