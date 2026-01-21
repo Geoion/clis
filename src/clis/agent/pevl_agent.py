@@ -151,7 +151,7 @@ class PEVLAgent:
         logger.info(f"[PEVL] Task memory created: {task_file}")
         
         # ============ Search for Similar Historical Tasks ============
-        similar_tasks_text = ""
+        self.similar_tasks_context = ""
         try:
             similar_tasks = self.vector_search.search_similar_tasks(query, top_k=3)
             if similar_tasks:
@@ -160,9 +160,29 @@ class PEVLAgent:
                     f"Found {len(similar_tasks)} similar historical tasks",
                     category="reference"
                 )
-                # TODO: Format historical tasks for analysis
+                
+                # Debug output
+                if stream_thinking:
+                    yield {
+                        "type": "debug",
+                        "content": f"📚 Loaded {len(similar_tasks)} similar tasks from history"
+                    }
+                
+                # Format historical tasks for planning
+                self.similar_tasks_context = "\n\n## 📚 Historical Experience\n\n"
+                self.similar_tasks_context += "Similar tasks from history (learn from past experiences):\n\n"
+                for i, task in enumerate(similar_tasks, 1):
+                    task_id = task.get('task_id', 'unknown')
+                    content = task.get('content', '')[:300]  # First 300 chars
+                    status = task.get('metadata', {}).get('status', 'unknown')
+                    
+                    self.similar_tasks_context += f"**Task {i}** (Status: {status}):\n"
+                    self.similar_tasks_context += f"{content}\n\n"
+                
+                logger.info(f"[PEVL] Loaded {len(similar_tasks)} historical tasks for context")
         except Exception as e:
             logger.warning(f"Failed to search similar tasks: {e}")
+            self.similar_tasks_context = ""
         
         # ============ Phase 0: Task Analysis (R1, one-time) ============
         if not user_mode_override or user_mode_override == "auto":
@@ -537,15 +557,99 @@ Return JSON format:
         Yields:
             ExecutionPlan object (via final yield/return)
         """
-        # Build planning prompt
+        # Build planning prompt with full context
         context_text = ""
         if context:
-            context_text = "\n\n[IMPORTANT] Failure information from previous rounds:\n\n"
+            context_text = "\n\n## 🔄 Previous Attempts\n\n"
+            
             for ctx in context:
-                context_text += f"Round {ctx['round']} failed:\n"
-                context_text += f"  Reason: {ctx['failure_diagnosis'].get('root_cause', 'unknown')}\n"
-                context_text += f"  Suggestions: {', '.join(ctx['suggested_changes'])}\n\n"
-            context_text += "Please adjust the plan based on these failures to avoid repeating mistakes!\n"
+                round_num_ctx = ctx['round']
+                plan = ctx.get('plan')
+                results = ctx.get('results', [])
+                failure_diagnosis = ctx.get('failure_diagnosis', {})
+                
+                context_text += f"### Round {round_num_ctx}\n\n"
+                
+                # Show what was attempted
+                if plan and hasattr(plan, 'steps'):
+                    context_text += "**Steps attempted:**\n"
+                    for step in plan.steps:
+                        context_text += f"- Step {step.id}: {step.description}\n"
+                    context_text += "\n"
+                
+                # Show what succeeded and what failed
+                if results:
+                    succeeded = [r for r in results if r.get('success', False)]
+                    failed = [r for r in results if not r.get('success', False)]
+                    
+                    if succeeded:
+                        context_text += f"**✓ Completed ({len(succeeded)} steps):**\n"
+                        for r in succeeded:
+                            tool = r.get('tool', 'unknown')
+                            params = r.get('params', {})
+                            # Show key info about what was done
+                            if tool == 'write_file':
+                                context_text += f"  - Created file: {params.get('path', 'unknown')}\n"
+                            elif tool == 'edit_file':
+                                context_text += f"  - Modified file: {params.get('path', 'unknown')}\n"
+                            elif tool == 'execute_command':
+                                cmd = params.get('command', '')[:60]
+                                context_text += f"  - Executed: {cmd}...\n"
+                            else:
+                                context_text += f"  - {tool}\n"
+                        context_text += "\n"
+                    
+                    if failed:
+                        context_text += f"**✗ Failed ({len(failed)} steps):**\n"
+                        for r in failed:
+                            tool = r.get('tool', 'unknown')
+                            error = r.get('output', '')[:100]
+                            context_text += f"  - {tool}: {error}\n"
+                        context_text += "\n"
+                
+                # Show failure reason
+                root_cause = failure_diagnosis.get('root_cause', 'Unknown')
+                context_text += f"**Failure reason:** {root_cause}\n\n"
+            
+            context_text += "**IMPORTANT:** \n"
+            context_text += "- DO NOT repeat steps that already succeeded\n"
+            context_text += "- Build on existing work (files created, dependencies installed, etc.)\n"
+            context_text += "- Focus ONLY on fixing the failure and completing remaining work\n"
+            context_text += "- If files exist, use edit_file instead of write_file\n\n"
+        
+        # Add historical context if available
+        historical_context = ""
+        if hasattr(self, 'similar_tasks_context') and self.similar_tasks_context:
+            historical_context = self.similar_tasks_context
+        
+        # Add working memory state (what's been done in current task)
+        working_state = ""
+        if round_num > 1:  # Only add for replanning
+            working_state = "\n\n## 📋 Current Task State\n\n"
+            
+            # Files that have been created/modified
+            if self.working_memory.files_written:
+                working_state += "**Files created/modified:**\n"
+                for f in self.working_memory.files_written:
+                    working_state += f"- {f}\n"
+                working_state += "\n"
+            
+            # Commands that have been executed
+            if self.working_memory.commands_run:
+                working_state += "**Recent commands executed:**\n"
+                for cmd_info in self.working_memory.commands_run[-5:]:  # Last 5
+                    cmd = cmd_info.get('cmd', '')[:60]
+                    success = cmd_info.get('success', False)
+                    status = "✓" if success else "✗"
+                    working_state += f"{status} {cmd}...\n"
+                working_state += "\n"
+            
+            # Known facts
+            if self.working_memory.known_facts:
+                working_state += "**Known facts:**\n"
+                for fact in self.working_memory.known_facts[-5:]:  # Last 5 facts
+                    working_state += f"- {fact}\n"
+                working_state += "\n"
         
         prompt = f"""You are a task planning expert. Please generate a detailed execution plan for the following task.
 
@@ -553,6 +657,8 @@ Task: {query}
 
 This is round {round_num} of planning.
 {context_text}
+{working_state}
+{historical_context}
 
 Please perform deep analysis and planning:
 
@@ -654,6 +760,10 @@ Output JSON:
         # Set working directory
         if plan.working_directory:
             self.working_dir_manager.change_directory(plan.working_directory)
+            yield {
+                "type": "debug",
+                "content": f"📁 Working directory: {plan.working_directory}"
+            }
         
         # Execute each step
         for step in plan.steps:
@@ -751,6 +861,12 @@ Output JSON:
                     self.working_memory.add_file_written(file_path)
                     self.working_memory.add_known_fact(f"File {file_path} modified")
                     self.episodic_memory.update_step(f"Modified: {file_path}", "done")
+                    
+                    # Debug output
+                    yield {
+                        "type": "debug",
+                        "content": f"💾 Remembered: {file_path} modified"
+                    }
             
             # Command execution tracking
             elif tool_name == 'execute_command':
@@ -761,6 +877,14 @@ Output JSON:
                         f"Command: {command[:100]}...",
                         category="command"
                     )
+                    
+                    # Debug output
+                    status = "✓" if success else "✗"
+                    cmd_short = command[:50] + "..." if len(command) > 50 else command
+                    yield {
+                        "type": "debug",
+                        "content": f"📝 Logged command {status}: {cmd_short}"
+                    }
             
             # Directory operation tracking
             elif tool_name == 'file_tree':
