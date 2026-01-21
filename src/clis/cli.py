@@ -77,7 +77,8 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
         from clis.agent.interactive_agent import InteractiveAgent
         from clis.tools import (
             ListFilesTool, ReadFileTool, ExecuteCommandTool, GitStatusTool, DockerPsTool,
-            DeleteFileTool, EditFileTool, GrepTool, ReadLintsTool, SearchFilesTool, FileTreeTool, WriteFileTool, GetFileInfoTool,
+            DeleteFileTool, EditFileTool, SearchReplaceTool, InsertCodeTool, DeleteLinesTool,
+            GrepTool, ReadLintsTool, SearchFilesTool, FileTreeTool, WriteFileTool, GetFileInfoTool,
             GitAddTool, GitBranchTool, GitCheckoutTool, GitCommitTool, GitDiffTool, GitLogTool, GitPullTool, GitPushTool,
             DockerLogsTool, DockerInspectTool, DockerStatsTool, DockerImagesTool, DockerRmiTool,
             SystemInfoTool, CheckCommandTool, GetEnvTool, ListProcessesTool, RunTerminalCmdTool,
@@ -144,7 +145,8 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
             # No skill matched, use all available tools
             tools = [
                 ListFilesTool(), ReadFileTool(), ExecuteCommandTool(), GitStatusTool(), DockerPsTool(),
-                DeleteFileTool(), EditFileTool(), GrepTool(), ReadLintsTool(), SearchFilesTool(), FileTreeTool(), WriteFileTool(), GetFileInfoTool(),
+                DeleteFileTool(), EditFileTool(), SearchReplaceTool(), InsertCodeTool(), DeleteLinesTool(),
+                GrepTool(), ReadLintsTool(), SearchFilesTool(), FileTreeTool(), WriteFileTool(), GetFileInfoTool(),
                 GitAddTool(), GitBranchTool(), GitCheckoutTool(), GitCommitTool(), GitDiffTool(), GitLogTool(), GitPullTool(), GitPushTool(),
                 DockerLogsTool(), DockerInspectTool(), DockerStatsTool(), DockerImagesTool(), DockerRmiTool(),
                 SystemInfoTool(), CheckCommandTool(), GetEnvTool(), ListProcessesTool(), RunTerminalCmdTool(),
