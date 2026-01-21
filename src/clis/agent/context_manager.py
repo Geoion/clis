@@ -4,7 +4,7 @@ Intelligent context management for ReAct agents.
 Handles observation history compression and critical information retention.
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 from dataclasses import dataclass
 from enum import Enum
 
@@ -32,6 +32,7 @@ class Observation:
     iteration: int
     is_critical: bool = False
     tool_name: Optional[str] = None
+    success: bool = True  # New: whether operation succeeded
     
     def __str__(self) -> str:
         """String representation for context."""
@@ -39,6 +40,12 @@ class Observation:
         if prefix:
             return f"{prefix} [{self.type.value}] {self.content}"
         return f"[{self.type.value}] {self.content}"
+    
+    def get_signature(self) -> str:
+        """Get observation signature for duplicate detection."""
+        # Use tool name + first 100 chars of content as signature
+        content_prefix = self.content[:100] if self.content else ""
+        return f"{self.tool_name}:{content_prefix}"
 
 
 class ContextManager:
@@ -73,13 +80,18 @@ class ContextManager:
         # Observation storage
         self.observations: List[Observation] = []
         self.current_iteration = 0
+        
+        # Duplicate operation detection
+        self.recent_failed_operations: List[str] = []  # Recent failed operation signatures
+        self.duplicate_warning_count = 0  # Duplicate warning count
     
     def add_observation(
         self,
         content: str,
         obs_type: ObservationType = ObservationType.INFO,
         is_critical: bool = False,
-        tool_name: Optional[str] = None
+        tool_name: Optional[str] = None,
+        success: bool = True
     ) -> None:
         """
         Add an observation to the context.
@@ -89,6 +101,7 @@ class ContextManager:
             obs_type: Type of observation
             is_critical: Whether this is critical information
             tool_name: Name of tool if this is a tool result
+            success: Whether the operation succeeded
         """
         if not self.context_config.enabled:
             # Simple mode: just append
@@ -97,7 +110,8 @@ class ContextManager:
                 type=obs_type,
                 iteration=self.current_iteration,
                 is_critical=is_critical,
-                tool_name=tool_name
+                tool_name=tool_name,
+                success=success
             ))
             return
         
@@ -110,12 +124,28 @@ class ContextManager:
             type=obs_type,
             iteration=self.current_iteration,
             is_critical=is_critical,
-            tool_name=tool_name
+            tool_name=tool_name,
+            success=success
         )
+        
+        # Detect duplicate failed operations
+        if not success and tool_name:
+            signature = obs.get_signature()
+            self.recent_failed_operations.append(signature)
+            
+            # Keep only the last 5 failed operations
+            if len(self.recent_failed_operations) > 5:
+                self.recent_failed_operations = self.recent_failed_operations[-5:]
+            
+            # Detect if duplicate failure (same operation appears 2 times in last 3 attempts)
+            recent_3 = self.recent_failed_operations[-3:]
+            if recent_3.count(signature) >= 2:
+                self.duplicate_warning_count += 1
+                logger.warning(f"Detected duplicate failed operation: {tool_name}, count: {self.duplicate_warning_count}")
         
         self.observations.append(obs)
         
-        # Compress if needed
+        # Compress if needed (intelligent compression of duplicate invalid operations)
         if len(self.observations) > self.context_config.compression_threshold:
             self._compress()
     
@@ -232,6 +262,7 @@ class ContextManager:
         Strategy:
         - Keep critical observations
         - Keep recent observations
+        - Remove duplicate failed operations (intelligent compression)
         - Summarize/remove middle observations
         """
         if not self.context_config.keep_critical:
@@ -252,24 +283,84 @@ class ContextManager:
             if obs not in critical and obs not in recent
         ]
         
+        # Intelligent compression: remove duplicate failed operations
+        middle_compressed = self._remove_duplicate_failures(middle)
+        compressed_count = len(middle) - len(middle_compressed)
+        if compressed_count > 0:
+            logger.info(f"Compressed {compressed_count} duplicate failed operations")
+        
         # Calculate how many middle observations we can keep
         max_obs = self.context_config.max_observations
         available_space = max_obs - len(critical) - len(recent)
         
-        if available_space > 0 and len(middle) > available_space:
+        if available_space > 0 and len(middle_compressed) > available_space:
             # Sample middle observations
-            step = len(middle) // available_space
-            middle = middle[::step][:available_space]
+            step = len(middle_compressed) // available_space
+            middle_compressed = middle_compressed[::step][:available_space]
         elif available_space <= 0:
-            middle = []
+            middle_compressed = []
         
         # Rebuild observations list
-        self.observations = critical + middle + recent
+        self.observations = critical + middle_compressed + recent
         
         logger.info(
             f"Compressed context: {len(critical)} critical, "
-            f"{len(middle)} middle, {len(recent)} recent"
+            f"{len(middle_compressed)} middle, {len(recent)} recent"
         )
+    
+    def _remove_duplicate_failures(self, observations: List[Observation]) -> List[Observation]:
+        """
+        Remove duplicate failed operations, keeping only first and last occurrences.
+        
+        Args:
+            observations: List of observations
+            
+        Returns:
+            Compressed observation list
+        """
+        if len(observations) <= 3:
+            return observations
+        
+        # Count occurrences of each signature
+        signature_occurrences: Dict[str, List[Observation]] = {}
+        for obs in observations:
+            if not obs.success and obs.tool_name:
+                sig = obs.get_signature()
+                if sig not in signature_occurrences:
+                    signature_occurrences[sig] = []
+                signature_occurrences[sig].append(obs)
+        
+        # For duplicate failed operations, keep only first and last occurrences
+        kept_observations = []
+        removed_signatures = set()
+        
+        for obs in observations:
+            sig = obs.get_signature() if (not obs.success and obs.tool_name) else None
+            
+            if sig and sig in signature_occurrences:
+                occurrences = signature_occurrences[sig]
+                # If repeated more than 2 times, keep only first and last
+                if len(occurrences) > 2:
+                    if obs == occurrences[0] or obs == occurrences[-1]:
+                        kept_observations.append(obs)
+                    elif sig not in removed_signatures:
+                        # Add a summary observation when first removing duplicates
+                        summary = f"[Compressed] {obs.tool_name} failed {len(occurrences)-2} times (compressed)"
+                        kept_observations.append(Observation(
+                            content=summary,
+                            type=ObservationType.INFO,
+                            iteration=obs.iteration,
+                            is_critical=False,
+                            tool_name=obs.tool_name,
+                            success=False
+                        ))
+                        removed_signatures.add(sig)
+                else:
+                    kept_observations.append(obs)
+            else:
+                kept_observations.append(obs)
+        
+        return kept_observations
     
     def get_summary(self) -> Dict[str, int]:
         """
@@ -283,8 +374,40 @@ class ContextManager:
             "critical": sum(1 for obs in self.observations if obs.is_critical),
             "errors": sum(1 for obs in self.observations if obs.type == ObservationType.ERROR),
             "rejections": sum(1 for obs in self.observations if obs.type == ObservationType.REJECTION),
-            "iterations": self.current_iteration
+            "iterations": self.current_iteration,
+            "duplicate_warnings": self.duplicate_warning_count
         }
+    
+    def has_duplicate_failures(self) -> bool:
+        """
+        Check if there are duplicate failed operations.
+        
+        Returns:
+            True if duplicate failures detected
+        """
+        return self.duplicate_warning_count >= 2
+    
+    def get_duplicate_warning_message(self) -> Optional[str]:
+        """
+        Get duplicate operation warning message.
+        
+        Returns:
+            Warning message if duplicates detected, None otherwise
+        """
+        if self.duplicate_warning_count >= 3:
+            return (
+                "🚨 Detected multiple duplicate failed operations! Try a different approach:\n"
+                "1. Check if prerequisites are met (e.g., files/directories exist)\n"
+                "2. Try using different tools or commands\n"
+                "3. Analyze failure reasons and adjust strategy"
+            )
+        elif self.duplicate_warning_count >= 2:
+            return (
+                "⚠️ Detected duplicate failed operations, suggest changing strategy:\n"
+                "- Check operation prerequisites\n"
+                "- Try different implementation approaches"
+            )
+        return None
     
     def clear(self) -> None:
         """Clear all observations."""
