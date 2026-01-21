@@ -53,7 +53,7 @@ def list(status: Optional[str], limit: int, verbose: bool):
         return
     
     # Create table
-    table = Table(title=f"📋 Task Memories (total {len(tasks)})")
+    table = Table(title=f"Task Memories (total {len(tasks)})")
     table.add_column("Task ID", style="cyan")
     table.add_column("Status", style="magenta")
     table.add_column("Created", style="green")
@@ -66,11 +66,11 @@ def list(status: Optional[str], limit: int, verbose: bool):
     for task in tasks:
         task_id = task['id']
         status_icon = {
-            'active': '🔄',
+            'active': '[ACTIVE]',
             'completed': '✅',
-            'archived': '📦',
+            'archived': '[ARCHIVED]',
             'failed': '❌'
-        }.get(task['status'], '❓')
+        }.get(task['status'], '[UNKNOWN]')
         
         status_display = f"{status_icon} {task['status']}"
         created = datetime.fromisoformat(task['created_at']).strftime('%Y-%m-%d %H:%M')
@@ -112,7 +112,7 @@ def show(task_id: str, full: bool, edit: bool):
     task_file = manager.get_task_file(task_id)
     
     if not task_file or not task_file.exists():
-        console.print(f"[red]❌ Task {task_id} does not exist[/red]")
+        console.print(f"[red]Error: Task {task_id} does not exist[/red]")
         return
     
     # Open in editor
@@ -125,16 +125,16 @@ def show(task_id: str, full: bool, edit: bool):
     # Read task information
     task_info = manager.metadata['tasks'].get(task_id)
     if not task_info:
-        console.print(f"[red]❌ Task metadata does not exist[/red]")
+        console.print(f"[red]Error: Task metadata does not exist[/red]")
         return
     
     # Display task information
     status_icon = {
-        'active': '🔄',
+        'active': '[ACTIVE]',
         'completed': '✅',
-        'archived': '📦',
+        'archived': '[ARCHIVED]',
         'failed': '❌'
-    }.get(task_info['status'], '❓')
+    }.get(task_info['status'], '[UNKNOWN]')
     
     info_text = f"""
 [bold cyan]Task ID:[/bold cyan] {task_id}
@@ -152,7 +152,7 @@ def show(task_id: str, full: bool, edit: bool):
     
     info_text += f"\n[bold cyan]Description:[/bold cyan]\n{task_info['description']}"
     
-    panel = Panel(info_text, title=f"📋 Task: {task_id}", border_style="cyan")
+    panel = Panel(info_text, title=f"Task: {task_id}", border_style="cyan")
     console.print(panel)
     
     # Display file content
@@ -211,7 +211,7 @@ def delete(task_id: Optional[str], status: Optional[str], older_than: Optional[s
     if task_id:
         task_info = manager.metadata['tasks'].get(task_id)
         if not task_info:
-            console.print(f"[red]❌ Task {task_id} does not exist[/red]")
+            console.print(f"[red]Error: Task {task_id} does not exist[/red]")
             return
         
         # Confirm
@@ -252,7 +252,7 @@ def archive(task_id: Optional[str], all_completed: bool):
     
     if task_id:
         manager._archive_task(task_id)
-        console.print(f"[green]✅ Archived task {task_id}[/green]")
+        console.print(f"[green]Archived task {task_id}[/green]")
     elif all_completed:
         # Archive all completed tasks
         completed_tasks = [
@@ -263,7 +263,7 @@ def archive(task_id: Optional[str], all_completed: bool):
         for tid in completed_tasks:
             manager._archive_task(tid)
         
-        console.print(f"[green]✅ Archived {len(completed_tasks)} tasks[/green]")
+        console.print(f"[green]Archived {len(completed_tasks)} tasks[/green]")
     else:
         console.print("[red]Please specify task_id or use --all-completed[/red]")
 
@@ -288,11 +288,11 @@ def cleanup(keep_days: Optional[int], archive: bool, keep_months: int, dry_run: 
     if keep_days:
         # Archive old tasks
         manager.archive_old_tasks(days=keep_days)
-        console.print(f"[green]✅ Archived tasks older than {keep_days} days[/green]")
+        console.print(f"[green]Archived tasks older than {keep_days} days[/green]")
     else:
         # Use configuration
         manager.cleanup()
-        console.print("[green]✅ Automatic cleanup executed[/green]")
+        console.print("[green]Automatic cleanup executed[/green]")
     
     if archive:
         console.print("[yellow]Archive cleanup feature under development...[/yellow]")
@@ -313,7 +313,7 @@ def export(task_id: Optional[str], output: Optional[str], format: str, all: bool
     if task_id:
         task_file = manager.get_task_file(task_id)
         if not task_file or not task_file.exists():
-            console.print(f"[red]❌ Task {task_id} does not exist[/red]")
+            console.print(f"[red]Error: Task {task_id} does not exist[/red]")
             return
         
         # Read content
@@ -323,7 +323,7 @@ def export(task_id: Optional[str], output: Optional[str], format: str, all: bool
         if output:
             output_path = Path(output)
             output_path.write_text(content, encoding='utf-8')
-            console.print(f"[green]✅ Exported to {output_path}[/green]")
+            console.print(f"[green]Exported to {output_path}[/green]")
         else:
             console.print(content)
     
@@ -377,7 +377,7 @@ def stats(verbose: bool):
   • Auto Cleanup: {manager.metadata['config']['auto_cleanup']}
 """
     
-    panel = Panel(stats_text, title="📊 Memory Statistics", border_style="cyan")
+    panel = Panel(stats_text, title="Memory Statistics", border_style="cyan")
     console.print(panel)
     
     if verbose:
@@ -417,7 +417,7 @@ def config(action: str, key: Optional[str], value: Optional[str]):
             
             manager.metadata['config'][key] = value
             manager._save_metadata()
-            console.print(f"[green]✅ Set {key} = {value}[/green]")
+            console.print(f"[green]Set {key} = {value}[/green]")
         else:
             console.print(f"[red]Unknown configuration item: {key}[/red]")
     
@@ -425,7 +425,7 @@ def config(action: str, key: Optional[str], value: Optional[str]):
         # Reset configuration
         manager.metadata['config'] = manager._default_config()
         manager._save_metadata()
-        console.print("[green]✅ Reset to default configuration[/green]")
+        console.print("[green]Reset to default configuration[/green]")
 
 
 # Shortcut commands
@@ -442,15 +442,15 @@ def recent(limit: int):
         console.print("[yellow]No task memories[/yellow]")
         return
     
-    console.print(f"[bold cyan]📋 Recent {len(tasks)} tasks:[/bold cyan]\n")
+    console.print(f"[bold cyan]Recent {len(tasks)} tasks:[/bold cyan]\n")
     
     for task in tasks:
         status_icon = {
-            'active': '🔄',
+            'active': '[ACTIVE]',
             'completed': '✅',
-            'archived': '📦',
+            'archived': '[ARCHIVED]',
             'failed': '❌'
-        }.get(task['status'], '❓')
+        }.get(task['status'], '[UNKNOWN]')
         
         created = datetime.fromisoformat(task['created_at']).strftime('%m-%d %H:%M')
         console.print(f"  {status_icon} [{created}] [cyan]{task['id']}[/cyan]: {task['description'][:60]}")
@@ -468,7 +468,7 @@ def current():
         console.print("[yellow]No active tasks[/yellow]")
         return
     
-    console.print(f"[bold cyan]🔄 Current Active Tasks ({len(tasks)}):[/bold cyan]\n")
+    console.print(f"[bold cyan][ACTIVE] Current Active Tasks ({len(tasks)}):[/bold cyan]\n")
     
     for task in tasks:
         console.print(f"  • [cyan]{task['id']}[/cyan]: {task['description']}")
@@ -530,7 +530,7 @@ def subtasks(task_id: str):
             f"[bold]📊 Subtask Progress[/bold]\n\n"
             f"Total: {progress['total']}\n"
             f"✅ Completed: {progress['completed']}\n"
-            f"🔄 In Progress: {progress['in_progress']}\n"
+            f"[ACTIVE] In Progress: {progress['in_progress']}\n"
             f"⏳ Pending: {progress['pending']}\n"
             f"🚫 Blocked: {progress['blocked']}\n"
             f"❌ Failed: {progress['failed']}\n\n"
@@ -635,7 +635,7 @@ def rebuild_index():
     from clis.agent.vector_search import VectorSearch
     from clis.agent.memory_manager import MemoryManager
     
-    console.print("[bold]🔄 Rebuilding vector index...[/bold]\n")
+    console.print("[bold][ACTIVE] Rebuilding vector index...[/bold]\n")
     
     try:
         vector_search = VectorSearch()
