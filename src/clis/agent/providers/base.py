@@ -44,6 +44,7 @@ class LLMProvider(ABC):
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        max_reasoning_tokens: Optional[int] = None,
     ) -> str:
         """
         Generate text from prompt.
@@ -53,6 +54,7 @@ class LLMProvider(ABC):
             system_prompt: System prompt
             temperature: Temperature override
             max_tokens: Max tokens override
+            max_reasoning_tokens: Max reasoning tokens (for reasoning models like R1)
             
         Returns:
             Generated text
