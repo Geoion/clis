@@ -1,9 +1,9 @@
 """
-任务规划器 - 两阶段执行模式的 Planning 阶段
+Task Planner - Planning phase for two-phase execution mode
 
-基于 Claude Code 和 Cursor 的设计理念：
-1. 先计划（只读探索）
-2. 再执行（按计划行动）
+Based on Claude Code and Cursor design principles:
+1. Plan first (read-only exploration)
+2. Execute next (act according to plan)
 """
 
 import json
@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 
 @dataclass
 class PlanStep:
-    """执行计划中的单个步骤"""
+    """A single step in the execution plan"""
     id: int
     description: str
     tool: str
@@ -32,7 +32,7 @@ class PlanStep:
 
 @dataclass
 class ExecutionPlan:
-    """完整的执行计划"""
+    """Complete execution plan"""
     query: str
     working_directory: str
     steps: List[PlanStep] = field(default_factory=list)
@@ -42,43 +42,43 @@ class ExecutionPlan:
     
     def to_markdown(self) -> str:
         """
-        转换为 Markdown 格式（可编辑）
+        Convert to Markdown format (editable)
         
         Returns:
-            Markdown 格式的计划
+            Plan in Markdown format
         """
-        md = f"""**执行计划**
+        md = f"""**Execution Plan**
 
-**任务**
+**Task**
 
 {self.query}
 
-**工作目录**
+**Working Directory**
 
 `{self.working_directory}`
 
-**步骤 ({self.total_steps} 个)**
+**Steps ({self.total_steps})**
 
 """
         for step in self.steps:
-            deps = f" (依赖: {step.depends_on})" if step.depends_on else ""
-            wd = f"\n • 目录: `{step.working_directory}`" if step.working_directory else ""
-            verify = f"\n • 验证: {step.verify_with}" if step.verify_with else ""
+            deps = f" (depends on: {step.depends_on})" if step.depends_on else ""
+            wd = f"\n • Directory: `{step.working_directory}`" if step.working_directory else ""
+            verify = f"\n • Verify: {step.verify_with}" if step.verify_with else ""
             
-            # 先生成 JSON 字符串，避免 f-string 中的花括号冲突
+            # Generate JSON string first to avoid brace conflicts in f-string
             params_json = json.dumps(step.params, ensure_ascii=False)
             
-            md += f"""**步骤 {step.id}: {step.description}**{deps}
+            md += f"""**Step {step.id}: {step.description}**{deps}
 
- • 工具: `{step.tool}`
- • 参数: `{params_json}`{wd}{verify}
- • 风险: {step.estimated_risk}
+ • Tool: `{step.tool}`
+ • Params: `{params_json}`{wd}{verify}
+ • Risk: {step.estimated_risk}
 
 """
         
-        # 风险提示
+        # Risk warnings
         if self.risks:
-            md += f"**⚠️ 风险提示**\n\n"
+            md += f"**⚠️ Risk Warnings**\n\n"
             for risk in self.risks:
                 md += f" • {risk}\n"
         
@@ -87,54 +87,54 @@ class ExecutionPlan:
     @classmethod
     def from_markdown(cls, md: str) -> 'ExecutionPlan':
         """
-        从 Markdown 解析执行计划
+        Parse execution plan from Markdown
         
         Args:
-            md: Markdown 格式的计划
+            md: Plan in Markdown format
             
         Returns:
-            ExecutionPlan 对象
+            ExecutionPlan object
         """
-        # 简单解析（可以后续改进）
+        # Simple parsing (can be improved later)
         lines = md.split('\n')
         plan = cls(query="", working_directory="")
         
-        # TODO: 实现完整的 Markdown 解析
+        # TODO: Implement complete Markdown parsing
         return plan
 
 
 class TaskPlanner:
     """
-    任务规划器
+    Task Planner
     
-    功能：
-    1. 分析任务复杂度
-    2. 生成结构化执行计划
-    3. 只使用只读工具探索
+    Features:
+    1. Analyze task complexity
+    2. Generate structured execution plan
+    3. Use only read-only tools for exploration
     """
     
     def __init__(self, agent, tools):
         """
-        初始化规划器
+        Initialize planner
         
         Args:
             agent: LLM Agent
-            tools: 所有可用工具列表
+            tools: List of all available tools
         """
         self.agent = agent
         self.all_tools = tools
         
-        # 只读工具（用于 Planning 阶段）
+        # Read-only tools (for Planning phase)
         self.readonly_tools = self._get_readonly_tools()
     
     def _get_readonly_tools(self) -> List:
-        """获取只读工具列表"""
+        """Get list of read-only tools"""
         readonly_names = {
             'read_file', 'list_files', 'file_tree', 'search_files', 'grep',
             'git_status', 'git_log', 'git_diff', 'git_branch',
             'system_info', 'check_command', 'get_env', 'list_processes',
             'codebase_search', 'find_definition', 'find_references', 'get_symbols',
-            'execute_command',  # 可用于探索（只读命令）
+            'execute_command',  # Can be used for exploration (read-only commands)
             'docker_ps', 'docker_logs', 'docker_inspect', 'docker_stats', 'docker_images',
             'http_request', 'check_port'
         }
@@ -143,73 +143,73 @@ class TaskPlanner:
     
     def assess_complexity(self, query: str) -> str:
         """
-        评估任务复杂度
+        Assess task complexity
         
         Args:
-            query: 用户查询
+            query: User query
             
         Returns:
             "simple", "medium", or "complex"
         """
         query_lower = query.lower()
         
-        # 简单任务标志（单一动作）
+        # Simple task indicators (single action)
         simple_patterns = [
-            # 单个文件操作
+            # Single file operation
             r'^(create|write|read|show|display)\s+.*\s+(file|txt|py)$',
             r'^list\s+',
             r'^check\s+',
             r'^show\s+',
-            # 单个查询
+            # Single query
             r'^(what|where|how)\s+',
         ]
         
-        # 复杂任务标志（明确的多步骤）
+        # Complex task indicators (explicit multi-step)
         complex_patterns = [
-            r'(create|build|setup).*project',  # 创建项目
-            r'(refactor|migrate|restructure)',  # 重构/迁移
-            r'(and|then).*and',  # 多个 and（3+步骤）
-            r'\d+\.\s+.*\d+\.',  # 编号列表（1. xxx 2. xxx）
+            r'(create|build|setup).*project',  # Create project
+            r'(refactor|migrate|restructure)',  # Refactor/migrate
+            r'(and|then).*and',  # Multiple "and" (3+ steps)
+            r'\d+\.\s+.*\d+\.',  # Numbered list (1. xxx 2. xxx)
         ]
         
-        # 中等任务标志
+        # Medium task indicators
         medium_keywords = ['create', 'setup', 'install', 'configure', 'test']
         
-        # 检查简单任务
+        # Check simple tasks
         if any(re.search(p, query_lower) for p in simple_patterns):
             return "simple"
         
-        # 检查复杂任务
+        # Check complex tasks
         if any(re.search(p, query_lower) for p in complex_patterns):
             return "complex"
         
-        # 检查步骤数量
-        # 统计分隔符：and, then, 逗号
+        # Check step count
+        # Count separators: and, then, comma
         separators = query_lower.count(' and ') + query_lower.count(' then ') + query_lower.count('，')
         if separators >= 3:
             return "complex"
         elif separators >= 1:
             return "medium"
         
-        # 检查关键词
+        # Check keywords
         if any(k in query_lower for k in medium_keywords):
             return "medium"
         
-        # 默认简单（偏向简单）
+        # Default simple (bias towards simple)
         return "simple"
     
     def generate_plan(self, query: str, similar_tasks_text: str = "") -> ExecutionPlan:
         """
-        生成执行计划
+        Generate execution plan
         
         Args:
-            query: 用户查询
-            similar_tasks_text: 相似历史任务文本（可选）
+            query: User query
+            similar_tasks_text: Similar historical task text (optional)
             
         Returns:
-            ExecutionPlan 对象
+            ExecutionPlan object
         """
-        # 提示词：要求 Agent 生成结构化计划
+        # Prompt: Request Agent to generate structured plan
         similar_context = ""
         if similar_tasks_text:
             similar_context = f"\n{similar_tasks_text}\n"
@@ -282,12 +282,12 @@ Example 2: "Edit and commit"
 Generate a SIMPLE plan (2-4 steps, NO verification steps):
 """
         
-        # 调用 LLM 生成计划
+        # Call LLM to generate plan
         try:
             response = self.agent.generate(prompt)
             logger.debug(f"LLM response received, length: {len(response)}")
             
-            # 解析 JSON 响应
+            # Parse JSON response
             plan = self._parse_plan_response(response, query)
             logger.debug(f"Plan parsed successfully, {plan.total_steps} steps")
             
@@ -298,16 +298,16 @@ Generate a SIMPLE plan (2-4 steps, NO verification steps):
     
     def _parse_plan_response(self, response: str, query: str) -> ExecutionPlan:
         """
-        解析 LLM 的计划响应
+        Parse LLM plan response
         
         Args:
-            response: LLM 响应文本
-            query: 原始查询
+            response: LLM response text
+            query: Original query
             
         Returns:
-            ExecutionPlan 对象
+            ExecutionPlan object
         """
-        # 尝试提取 JSON
+        # Try to extract JSON
         json_match = re.search(r'```json\s*\n(.*?)\n```', response, re.DOTALL)
         if not json_match:
             json_match = re.search(r'```\s*\n(.*?)\n```', response, re.DOTALL)
@@ -316,14 +316,14 @@ Generate a SIMPLE plan (2-4 steps, NO verification steps):
             try:
                 data = json.loads(json_match.group(1))
                 
-                # 构建 ExecutionPlan
+                # Build ExecutionPlan
                 plan = ExecutionPlan(
                     query=query,
                     working_directory=data.get('working_directory', os.getcwd()),
                     risks=data.get('risks', [])
                 )
                 
-                # 解析步骤
+                # Parse steps
                 for step_data in data.get('steps', []):
                     step = PlanStep(
                         id=step_data['id'],
@@ -351,7 +351,7 @@ Generate a SIMPLE plan (2-4 steps, NO verification steps):
                 import traceback
                 traceback.print_exc()
         
-        # 降级：创建简单计划
+        # Fallback: create simple plan
         logger.warning("Could not parse plan, creating simple plan")
         return ExecutionPlan(
             query=query,
