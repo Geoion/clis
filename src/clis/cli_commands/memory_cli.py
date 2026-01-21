@@ -155,7 +155,7 @@ def show(task_id: str, full: bool, edit: bool):
     panel = Panel(info_text, title=f"📋 Task: {task_id}", border_style="cyan")
     console.print(panel)
     
-    # 显示文件内容
+    # Show file content
     if full:
         content = task_file.read_text(encoding='utf-8')
         console.print("\n" + "="*60)
@@ -342,7 +342,7 @@ def stats(verbose: bool):
     
     manager = MemoryManager()
     
-    # 统计任务数量
+    # Count tasks
     status_counts = {}
     total_size = 0
     

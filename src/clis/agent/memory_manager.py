@@ -174,10 +174,10 @@ class MemoryManager:
     
     def archive_old_tasks(self, days: Optional[int] = None):
         """
-        归档旧任务
+        Archive old tasks
         
         Args:
-            days: 保留天数 (None = 使用配置)
+            days: Days to keep (None = use config)
         """
         if days is None:
             days = self.metadata["config"]["retention_days"]
@@ -200,7 +200,7 @@ class MemoryManager:
                 continue
     
     def _archive_task(self, task_id: str):
-        """归档单个任务"""
+        """Archive single task"""
         if task_id not in self.metadata["tasks"]:
             return
         
@@ -210,7 +210,7 @@ class MemoryManager:
         if not completed_file.exists():
             return
         
-        # 按月归档
+        # Archive by month
         completed_at_str = task_info.get("completed_at")
         if not completed_at_str:
             completed_at = datetime.now()
@@ -226,7 +226,7 @@ class MemoryManager:
         archive_file = archive_month_dir / f"task_{task_id}.md"
         shutil.move(str(completed_file), str(archive_file))
         
-        # 更新元数据
+        # Update metadata
         task_info.update({
             "status": TaskStatus.ARCHIVED.value,
             "archived_at": datetime.now().isoformat(),
@@ -235,7 +235,7 @@ class MemoryManager:
         self._save_metadata()
     
     def cleanup(self):
-        """执行清理任务"""
+        """Execute cleanup tasks"""
         if self.metadata["config"]["auto_archive"]:
             self.archive_old_tasks()
         
@@ -243,7 +243,7 @@ class MemoryManager:
             self._cleanup_failed_tasks()
     
     def _cleanup_failed_tasks(self):
-        """清理失败的任务 (保留 1 天)"""
+        """Clean up failed tasks (keep 1 day)"""
         cutoff = datetime.now() - timedelta(days=1)
         
         for task_id, task_info in list(self.metadata["tasks"].items()):
@@ -255,12 +255,12 @@ class MemoryManager:
                 try:
                     completed_at = datetime.fromisoformat(completed_at_str)
                     if completed_at < cutoff:
-                        # 删除文件
+                        # Delete file
                         task_file = self.memory_dir / task_info["file_path"]
                         if task_file.exists():
                             task_file.unlink()
                         
-                        # 删除元数据
+                        # Delete metadata
                         del self.metadata["tasks"][task_id]
                 except (ValueError, Exception):
                     continue
@@ -273,14 +273,14 @@ class MemoryManager:
         limit: int = 20
     ) -> List[Dict]:
         """
-        列出任务
+        List tasks
         
         Args:
-            status: 过滤状态 (None = 全部)
-            limit: 最大返回数量
+            status: Filter by status (None = all)
+            limit: Maximum number to return
             
         Returns:
-            任务列表 (按创建时间倒序)
+            Task list (sorted by creation time descending)
         """
         tasks = []
         for task_id, task_info in self.metadata["tasks"].items():
@@ -290,12 +290,12 @@ class MemoryManager:
                     **task_info
                 })
         
-        # 按创建时间倒序
+        # Sort by creation time descending
         tasks.sort(key=lambda t: t.get("created_at", ""), reverse=True)
         return tasks[:limit]
     
     def get_task_file(self, task_id: str) -> Optional[Path]:
-        """获取任务文件路径"""
+        """Get task file path"""
         if task_id not in self.metadata["tasks"]:
             return None
         
@@ -304,13 +304,13 @@ class MemoryManager:
     
     def search_tasks(self, query: str) -> List[Dict]:
         """
-        搜索任务 (简单文本匹配)
+        Search tasks (simple text matching)
         
         Args:
-            query: 搜索关键词
+            query: Search keyword
             
         Returns:
-            匹配的任务列表
+            List of matching tasks
         """
         results = []
         for task_id, task_info in self.metadata["tasks"].items():
@@ -324,10 +324,10 @@ class MemoryManager:
     
     def get_stats(self) -> Dict:
         """
-        获取记忆统计信息
+        Get memory statistics
         
         Returns:
-            统计信息字典
+            Statistics dictionary
         """
         stats = {
             "total": len(self.metadata["tasks"]),
@@ -352,20 +352,20 @@ class MemoryManager:
     
     def delete_task(self, task_id: str):
         """
-        删除任务
+        Delete task
         
         Args:
-            task_id: 任务ID
+            task_id: Task ID
         """
         if task_id not in self.metadata["tasks"]:
             return
         
-        # 删除文件
+        # Delete file
         task_info = self.metadata["tasks"][task_id]
         task_file = self.memory_dir / task_info["file_path"]
         if task_file.exists():
             task_file.unlink()
         
-        # 删除元数据
+        # Delete metadata
         del self.metadata["tasks"][task_id]
         self._save_metadata()

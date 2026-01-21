@@ -33,7 +33,7 @@ class EpisodicMemory:
         self.tasks_dir = self.memory_dir / "tasks" / "active"
         self.task_file = self.tasks_dir / f"task_{task_id}.md"
         
-        # 确保目录存在
+        # Ensure directory exists
         self.tasks_dir.mkdir(parents=True, exist_ok=True)
     
     def load_or_create(self, task_description: str) -> str:
