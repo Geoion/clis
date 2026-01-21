@@ -15,7 +15,7 @@ from clis.agent.agent import Agent
 from clis.agent.context_manager import ContextManager, ObservationType
 from clis.agent.working_memory import WorkingMemory
 from clis.agent.episodic_memory import EpisodicMemory
-from clis.agent.state_machine import TaskStateMachine
+from clis.agent.state_machine import TaskStateMachine, TaskState
 from clis.agent.memory_manager import MemoryManager
 from clis.config import ConfigManager
 from clis.safety.risk_scorer import RiskScorer
@@ -85,20 +85,28 @@ class InteractiveAgent:
             logger.warning(f"Failed to load safety config: {e}")
             self.safety_config = None
         
-        # ============ 新增: 混合记忆系统 ============
-        # 工作记忆 (内存)
+        # ============ New: Hybrid memory system ============
+        # Working memory (in-memory)
         self.working_memory = WorkingMemory()
         
-        # 情景记忆 (任务文档) - 在任务开始时创建
+        # Episodic memory (task documents) - created when task starts
         self.episodic_memory: Optional[EpisodicMemory] = None
         
-        # 状态机
+        # State machine
         self.state_machine = TaskStateMachine(max_iterations=self.max_iterations)
         
-        # 记忆管理器
+        # Memory manager
         self.memory_manager = MemoryManager()
         
-        # 当前任务ID
+        # ============ New: Working directory manager ============
+        from clis.agent.working_directory import WorkingDirectoryManager
+        self.working_dir_manager = WorkingDirectoryManager()
+        
+        # Vector search (semantic search for historical tasks)
+        from clis.agent.vector_search import VectorSearch
+        self.vector_search = VectorSearch()
+        
+        # Current task ID
         self.current_task_id: Optional[str] = None
     
     def execute(self, query: str, stream_thinking: bool = False) -> Generator[Dict[str, Any], None, None]:
@@ -119,22 +127,26 @@ class InteractiveAgent:
             "needs_confirmation": bool (for commands)
         }
         """
-        # ============ 初始化记忆系统 ============
-        # 创建任务记忆
+        # ============ Initialize memory system ============
+        # Create task memory
         self.current_task_id = datetime.now().strftime('%Y%m%d_%H%M%S')
         task_id, task_file = self.memory_manager.create_task_memory(query, self.current_task_id)
         self.episodic_memory = EpisodicMemory(task_id)
         self.episodic_memory.load_or_create(query)
         
-        # 清空工作记忆
+        # Clear working memory
         self.working_memory.clear()
         
         logger.info(f"Task memory created: {task_file}")
         
+        # ============ Search for similar historical tasks ============
+        similar_tasks_context = self._search_similar_tasks(query)
+        has_similar_tasks = bool(similar_tasks_context)
+        
         platform = get_platform()
         shell = get_shell()
         
-        # 用于跟踪任务是否成功
+        # Track whether task succeeded
         task_success = True
         
         # Build base system prompt template (will be updated each iteration)
@@ -187,42 +199,30 @@ User request: {query}
 
 {skill_section}{phase_hint}
 
-📋 TOOL DESCRIPTIONS:
+📋 TOOL USAGE GUIDELINES:
 
-🔍 SEARCH & ANALYSIS:
-- codebase_search: Semantic search (meaning-based, query like "how do we handle auth?")
-- find_definition: Find where a symbol is defined (function, class, variable)
-- find_references: Find all usages/references of a symbol
-- get_symbols: Get outline of a file (all functions, classes, methods)
-- search_files: Basic text search (literal matching, no regex)
-- grep: Advanced search with regex and context support
+🎯 Core Principle: Prefer dedicated tools, avoid execute_command
+- When a dedicated tool exists, don't use execute_command
+- Example: Use write_file instead of echo >, use git_status instead of git status
 
-📝 FILE OPERATIONS:
-- read_file: Read file content (params: path, offset, limit)
-- write_file: Write/create file (params: path, content) - requires confirmation
-- edit_file: Edit using search-replace (params: path, old_content, new_content) - PREFERRED for modifications
-- search_replace: Batch find-replace across multiple files (supports regex) - requires confirmation
-- insert_code: Insert code at specific line (params: path, line, content)
-- delete_lines: Delete specific lines (params: path, start_line, end_line)
-- delete_file: Delete a file (params: path) - requires confirmation
-- file_tree: View directory structure (params: path, max_depth, show_hidden, pattern)
-- list_files: List files in a directory
-- read_lints: Read linter errors for files
+⭐ Most Common Tools (remember these first):
 
-📦 GIT OPERATIONS:
-- git_status: Check current git status
-- git_diff: View changes in files
-- git_add: Stage files for commit (can stage multiple: files=["a.py", "b.py"])
-- git_commit: Commit staged changes with a message
-- git_push: Push commits to remote
-- git_pull: Pull updates from remote
-- git_branch: List/create/delete branches
-- git_checkout: Switch branches or restore files
+📝 File Operations:
+- read_file, write_file, edit_file, list_files, file_tree
+- search_replace: Batch replacement (execute directly, no dry_run needed)
 
-💻 TERMINAL & SYSTEM:
-- list_terminals: List all active terminals
-- read_terminal_output: Read output from a terminal
-- execute_command: Execute shell command (use only when no specific tool available)
+📦 Git Operations:
+- git_status, git_add, git_commit, git_log, git_diff
+
+🔍 Search & Analysis:
+- grep, search_files, find_definition, codebase_search
+
+💻 System/Others:
+- execute_command: Use only when no dedicated tool available
+- system_info, check_command, http_request
+
+📚 Complete Tool List:
+{self._get_compact_tool_list()}
 
 ⚠️ IMPORTANT RULES:
 1. Don't call the same tool with same parameters 3+ times (causes loops)
@@ -289,18 +289,37 @@ OR when complete:
             # Yield iteration start (always, for counting)
             yield {"type": "iteration_start", "iteration": iteration + 1}
             
-            # ============ 状态机检测 ============
+            # ============ State machine detection ============
             state_advice = self.state_machine.detect_state(iteration, self.working_memory)
             
-            # 如果是紧急状态(循环或超时),强制提示
+            # If urgent state (loop or timeout), force prompt
             if state_advice.is_urgent:
                 logger.warning(f"Urgent state detected: {state_advice.message}")
+                logger.debug(f"State: {state_advice.state}, State value: {state_advice.state.value}")
+                logger.debug(f"TaskState.STUCK: {TaskState.STUCK}, TaskState.STUCK value: {TaskState.STUCK.value}")
                 yield {
                     "type": "warning",
-                    "content": f"{state_advice.message}\n建议: {'; '.join(state_advice.suggested_actions)}"
+                    "content": f"{state_advice.message}\nSuggestions: {'; '.join(state_advice.suggested_actions)}"
                 }
+                
+                # CRITICAL: If stuck in loop, force termination
+                logger.debug(f"Checking if should terminate: {state_advice.state} == {TaskState.STUCK} → {state_advice.state == TaskState.STUCK}")
+                if state_advice.state == TaskState.STUCK:
+                    logger.error(f"🚨 Loop detected - forcing termination after {iteration + 1} iterations")
+                    self.episodic_memory.update_step(f"Task terminated: {state_advice.message}", "error")
+                    self.memory_manager.complete_task(
+                        self.current_task_id,
+                        success=False
+                    )
+                    yield {
+                        "type": "error",
+                        "content": f"Task terminated: {state_advice.message}",
+                        "task_file": str(self.episodic_memory.get_file_path()),
+                        "stats": self.working_memory.get_stats()
+                    }
+                    return  # Force exit
             
-            # 更新进度
+            # Update progress
             self.working_memory.update_phase(
                 state_advice.state.value,
                 f"{iteration + 1}/{self.max_iterations}"
@@ -349,19 +368,36 @@ OR when complete:
             
             # Handle completion
             if action_type == "done":
-                # ============ 完成任务记忆 ============
+                # ============ Complete task memory ============
                 summary = action.get("summary", "Task completed")
-                self.episodic_memory.update_step("任务完成", "done")
-                self.episodic_memory.update_next_action(f"✅ 已完成: {summary}")
+                self.episodic_memory.update_step("Task completed", "done")
+                self.episodic_memory.update_next_action(f"✅ Completed: {summary}")
                 
-                # 完成任务
+                # Complete task
                 self.memory_manager.complete_task(
                     self.current_task_id,
                     success=task_success,
                     extract_knowledge=True
                 )
                 
-                # 显示统计
+                # ============ Build vector index for task ============
+                try:
+                    # Check if task file exists
+                    if self.episodic_memory.task_file and self.episodic_memory.task_file.exists():
+                        # Get task content for better indexing
+                        task_content = self.episodic_memory.task_file.read_text(encoding='utf-8')[:500]  # First 500 chars
+                        self.vector_search.index_task(
+                            self.current_task_id,
+                            query,
+                            task_content
+                        )
+                        logger.info(f"Indexed task {self.current_task_id} for vector search")
+                    else:
+                        logger.warning(f"Task file not found, skipping indexing: {self.episodic_memory.task_file}")
+                except Exception as e:
+                    logger.warning(f"Failed to index task: {e}")
+                
+                # Show statistics
                 stats = self.working_memory.get_stats()
                 logger.info(f"Task completed. Stats: {stats}")
                 
@@ -379,23 +415,23 @@ OR when complete:
                 tool_name = action.get("tool")
                 params = action.get("params", {})
                 
-                # ============ 更新工作记忆 ============
+                # ============ Update working memory ============
                 self.working_memory.increment_tool(tool_name)
                 
-                # 特殊处理: 文件读取
+                # Special handling: file reading
                 if tool_name == 'read_file':
                     file_path = params.get('path', '')
                     is_new = self.working_memory.add_file_read(file_path)
                     
                     if not is_new:
-                        # 重复读取!强制警告
-                        warning_msg = f"⚠️ 警告: 文件 '{file_path}' 已经读过!可能陷入循环。"
+                        # Duplicate read! Force warning
+                        warning_msg = f"⚠️ Warning: File '{file_path}' has already been read! Possible loop."
                         yield {
                             "type": "warning",
                             "content": warning_msg
                         }
                         self.episodic_memory.add_finding(
-                            f"重复读取文件: {file_path}",
+                            f"Duplicate file read: {file_path}",
                             category="warning"
                         )
                 
@@ -408,6 +444,29 @@ OR when complete:
                     'system_info', 'check_command', 'get_env', 'list_processes', 'check_port',
                     'http_request'  # GET requests are typically read-only
                 }
+                
+                # Check for duplicate calls to readonly tools (new warning mechanism)
+                if tool_name in readonly_tools and len(self.tool_call_history) >= 2:
+                    # Check if recent calls have the same signature
+                    call_signature = f"{tool_name}({str(params)})"
+                    # Check last 2 historical calls
+                    recent_2 = self.tool_call_history[-2:]
+                    recent_signatures = [f"{c['tool']}({str(c['params'])})" for c in recent_2]
+                    
+                    # If last 2 calls match current call
+                    if call_signature in recent_signatures:
+                        # Calculate total call count (including current)
+                        total_count = recent_signatures.count(call_signature) + 1
+                        # Second or more call, give warning
+                        warning_msg = f"""⚠️ Duplicate readonly tool call!
+Tool '{tool_name}' has been called {total_count} times recently with same parameters
+Parameters: {str(params)[:100]}
+
+💡 Suggestion: Don't repeat queries! Previous results are already in context, use them directly."""
+                        yield {
+                            "type": "warning",
+                            "content": warning_msg
+                        }
                 
                 # Only check for loops on non-readonly tools
                 should_check_loop = tool_name not in readonly_tools
@@ -442,7 +501,8 @@ OR when complete:
                         content=observation,
                         obs_type=ObservationType.ERROR,
                         is_critical=True,
-                        tool_name=tool_name
+                        tool_name=tool_name,
+                        success=False
                     )
                     
                     yield {
@@ -493,27 +553,37 @@ OR when complete:
                         "success": result.success
                     })
                     
-                    # ============ 更新记忆系统 ============
-                    # 记录文件写入
+                    # ============ Update memory system ============
+                    # Record file writes
                     if tool_name in ('write_file', 'edit_file'):
                         file_path = params.get('path', '')
                         self.working_memory.add_file_written(file_path)
-                        self.episodic_memory.update_step(f"写入文件: {file_path}", "done")
+                        self.working_memory.add_known_fact(f"File {file_path} created/modified")
+                        self.episodic_memory.update_step(f"Write file: {file_path}", "done")
                     
-                    # 记录关键发现
+                    # Record key findings
                     if result.success and tool_name in ('read_file', 'search_files', 'file_tree'):
                         preview = result.output[:100] if result.output else ""
                         self.episodic_memory.add_finding(
-                            f"从 {tool_name}({params}) 获取: {preview}...",
+                            f"From {tool_name}({params}): {preview}...",
                             category="data"
                         )
+                    
+                    # Record directory/Git related facts
+                    if result.success:
+                        if tool_name == 'list_files':
+                            path = params.get('path', '')
+                            self.working_memory.add_known_fact(f"Directory {path} checked")
+                        elif tool_name == 'file_tree':
+                            path = params.get('path', '')
+                            self.working_memory.add_known_fact(f"Directory tree {path} viewed")
                     
                     # Prepare content for return (use error message if failed)
                     if result.success:
                         content = result.output[:500] if result.output else "Success"
                     else:
                         content = result.error if result.error else (result.output[:500] if result.output else "Unknown error")
-                        task_success = False  # 标记任务失败
+                        task_success = False  # Mark task as failed
                     
                     # Add to context manager
                     obs_type = ObservationType.ERROR if not result.success else ObservationType.TOOL_RESULT
@@ -521,7 +591,8 @@ OR when complete:
                         content=f"Tool '{tool_name}' result: {content}",
                         obs_type=obs_type,
                         is_critical=not result.success,
-                        tool_name=tool_name
+                        tool_name=tool_name,
+                        success=result.success
                     )
                     
                     yield {
@@ -547,7 +618,8 @@ OR when complete:
                     self.context_manager.add_observation(
                         content=error_msg,
                         obs_type=ObservationType.ERROR,
-                        is_critical=True
+                        is_critical=True,
+                        success=False
                     )
                     task_success = False
                     yield {
@@ -569,11 +641,32 @@ OR when complete:
                     # Caller will handle this and call execute_command()
                     return
                 
+                # ============ Check command cache ============
+                is_cached, cache_message = self.working_memory.check_command_cache(command)
+                if is_cached:
+                    # Command result cached, warn Agent
+                    yield {
+                        "type": "warning",
+                        "content": cache_message
+                    }
+                    # Still execute, but warning will be seen in observations
+                
                 # Execute command (low risk, auto-approved)
                 result = self.tool_executor.execute("execute_command", {"command": command})
                 
-                # ============ 更新工作记忆 ============
-                self.working_memory.add_command(command, result.success)
+                # ============ Update working directory state ============
+                if result.success:
+                    # Check if command contains cd, automatically update working directory
+                    if self.working_dir_manager.update_from_command(command):
+                        logger.info(f"Working directory switched to: {self.working_dir_manager.current_dir}")
+                
+                # ============ Update working memory ============
+                self.working_memory.add_command(command, result.success, result.output)
+                
+                # Extract known facts
+                if result.success:
+                    self._extract_facts_from_command(command, result.output)
+                
                 if not result.success:
                     task_success = False
                 
@@ -582,7 +675,9 @@ OR when complete:
                 self.context_manager.add_observation(
                     content=f"Command result: {result.output[:500]}",
                     obs_type=obs_type,
-                    is_critical=not result.success
+                    is_critical=not result.success,
+                    tool_name="execute_command",
+                    success=result.success
                 )
                 
                 yield {
@@ -596,7 +691,8 @@ OR when complete:
                 self.context_manager.add_observation(
                     content=f"Unknown action type: {action_type}",
                     obs_type=ObservationType.ERROR,
-                    is_critical=True
+                    is_critical=True,
+                    success=False
                 )
                 yield {"type": "error", "content": f"Unknown action type: {action_type}"}
             
@@ -604,38 +700,84 @@ OR when complete:
             context_summary = self.context_manager.get_context()
             stats = self.context_manager.get_summary()
             
-            # ============ 注入记忆系统到 prompt ============
+            # Check if there are duplicate failure warnings
+            duplicate_warning = self.context_manager.get_duplicate_warning_message()
+            
+            # ============ Inject memory system into prompt ============
             state_advice_text = self.state_machine.format_advice(state_advice)
             working_memory_text = self.working_memory.to_prompt()
+            working_dir_text = self.working_dir_manager.to_prompt()
             episodic_memory_text = self.episodic_memory.inject_to_prompt(include_log=False)
             
+            # Only inject similar tasks on first iteration (avoid repetition)
+            similar_tasks_section = ""
+            if iteration == 0 and has_similar_tasks:
+                similar_tasks_section = f"\n{similar_tasks_context}\n"
+            
+            # Add duplicate warning section
+            duplicate_warning_section = ""
+            if duplicate_warning:
+                duplicate_warning_section = f"\n\n{duplicate_warning}\n"
+            
             current_context = f"""User request: {query}
-
+{similar_tasks_section}
 {state_advice_text}
+
+{working_dir_text}
 
 {working_memory_text}
 
 {episodic_memory_text}
 
 ╭──────────────────────────────────────────────────────────────╮
-│                  📜 最近观察 (OBSERVATIONS)                   │
+│                  📜 Recent Observations (OBSERVATIONS)       │
 ╰──────────────────────────────────────────────────────────────╯
 
-Previous observations ({stats['total']} total, {stats['critical']} critical):
+Previous observations ({stats['total']} total, {stats['critical']} critical, {stats.get('duplicate_warnings', 0)} duplicate failures):
 {context_summary}
+{duplicate_warning_section}
+⚠️ CRITICAL REMINDERS:
+- 🔍 **Information in context is trustworthy!** Don't repeat the same query commands
+  Example: If you've already executed 'ls -la /tmp/dir' and seen the result, don't execute it again
+  Use the result above directly to continue to the next step!
 
-⚠️ IMPORTANT:
-- 检查工作记忆中的"已读文件"列表,不要重复读取!
-- 查看状态机建议,遵循当前阶段的指导
-- 参考任务记忆中的已完成步骤和关键发现
-- If task is COMPLETE, respond with {{"type": "done", "summary": "..."}}
-- Otherwise, take a DIFFERENT action to make progress
+- 📋 **Check working memory**:
+  • Files read list → Don't repeat reading the same file
+  • Commands executed list → Don't repeat executing the same query
+  • Tool usage statistics → If a tool is used >5 times, change strategy!
+
+- 🎯 **Efficient Action Principles** (Very Important!):
+  • ⛔ Don't over-verify! Tool success means success, no need to check again
+  • ⛔ After write_file succeeds, don't verify with list_files
+  • ⛔ After check_port returns result, don't check_port again
+  • ⛔ Command exit code = 0 means success, don't repeat execution
+  • ✅ Only do one complete verification at the end when summarizing
+  
+  ❌ Wrong Pattern (wasteful operations):
+     write_file() → list_files()  # Not needed!
+     check_port() → check_port()  # Don't repeat!
+     mkdir success → ls verify    # Wasteful!
+  
+  ✅ Correct Pattern (efficient):
+     write_file() → Continue to next file
+     check_port() → If OPEN, immediately test API
+     mkdir success → Create files directly inside
+  
+  • Each command should advance the task, not verify known information
+  • If an operation fails multiple times, check prerequisites first, then try different methods
+
+- 📝 **Task Management**:
+  • Check state machine suggestions, follow current phase guidance
+  • Reference completed steps and key findings in task memory
+  • If historical task references exist, learn from experience but adjust based on current situation
+  • If task is COMPLETE, respond with {{"type": "done", "summary": "..."}}
+  • Otherwise, take a DIFFERENT action to make progress
 
 What's your next action?"""
         
         # Max iterations reached
-        # ============ 标记任务失败 ============
-        self.episodic_memory.update_step("任务未完成(达到迭代上限)", "done")
+        # ============ Mark task as failed ============
+        self.episodic_memory.update_step("Task incomplete (reached iteration limit)", "done")
         self.memory_manager.complete_task(
             self.current_task_id,
             success=False,
@@ -654,6 +796,71 @@ What's your next action?"""
                 "content": f"Reached maximum iterations ({self.max_iterations})",
                 "task_file": str(self.episodic_memory.get_file_path())
             }
+    
+    def _search_similar_tasks(self, query: str) -> str:
+        """
+        Search for similar historical tasks and generate context.
+        
+        Args:
+            query: Current task query
+            
+        Returns:
+            Historical task context string (empty if no similar tasks)
+        """
+        try:
+            # Search for similar tasks (top 3, similarity > 50%)
+            similar_tasks = self.vector_search.search_similar_tasks(
+                query,
+                top_k=3,
+                min_similarity=0.5
+            )
+            
+            if not similar_tasks:
+                return ""
+            
+            # Build context
+            context = "╭──────────────────────────────────────────────────────────────╮\n"
+            context += "│              📚 Historical Task Reference (SIMILAR TASKS)    │\n"
+            context += "╰──────────────────────────────────────────────────────────────╯\n\n"
+            context += "You've done similar tasks before, you can reference:\n\n"
+            
+            for i, (task_id, similarity, description) in enumerate(similar_tasks, 1):
+                context += f"{i}. [{similarity:.0%}] {description}\n"
+                
+                # Try to load task's key findings
+                try:
+                    task_memory = EpisodicMemory(task_id)
+                    if task_memory.exists():
+                        task_content = task_memory.task_file.read_text(encoding='utf-8')
+                        
+                        # Extract key findings section
+                        findings_match = re.search(
+                            r'## 🔍 Key Findings\s*\n(.*?)(?=\n##|\Z)',
+                            task_content,
+                            re.DOTALL
+                        )
+                        
+                        if findings_match:
+                            findings = findings_match.group(1).strip()
+                            if findings and findings != "*(Will be automatically recorded during execution)*":
+                                # Only take first 3 findings
+                                finding_lines = [l for l in findings.split('\n') if l.strip() and l.strip().startswith('-')][:3]
+                                if finding_lines:
+                                    context += f"   Key Findings:\n"
+                                    for finding in finding_lines:
+                                        context += f"   {finding}\n"
+                except Exception as e:
+                    logger.debug(f"Could not load task {task_id} findings: {e}")
+                
+                context += "\n"
+            
+            context += "💡 Tip: Reference these experiences, but adjust methods based on current task.\n"
+            
+            return context
+        
+        except Exception as e:
+            logger.error(f"Error searching similar tasks: {e}")
+            return ""
     
     def _get_few_shot_examples(self) -> str:
         """
@@ -879,12 +1086,14 @@ Iteration 3: Done
             self.context_manager.add_observation(
                 content=f"User rejected tool: {tool_name}",
                 obs_type=ObservationType.REJECTION,
-                is_critical=True
+                is_critical=True,
+                tool_name=tool_name,
+                success=False
             )
-            # 记录到任务文档
+            # Record to task document
             if self.episodic_memory:
                 self.episodic_memory.add_finding(
-                    f"用户拒绝工具: {tool_name}({params})",
+                    f"User rejected tool: {tool_name}({params})",
                     category="rejection"
                 )
             return {
@@ -895,7 +1104,7 @@ Iteration 3: Done
         
         result = self.tool_executor.execute(tool_name, params)
         
-        # ============ 更新工作记忆 ============
+        # ============ Update working memory ============
         if self.working_memory:
             self.working_memory.increment_tool(tool_name)
             
@@ -906,11 +1115,11 @@ Iteration 3: Done
                 file_path = params.get('path', '')
                 self.working_memory.add_file_written(file_path)
         
-        # 更新任务文档
+        # Update task document
         if self.episodic_memory and result.success:
             if tool_name in ('write_file', 'edit_file'):
                 file_path = params.get('path', '')
-                self.episodic_memory.update_step(f"写入文件: {file_path}", "done")
+                self.episodic_memory.update_step(f"Write file: {file_path}", "done")
         
         # Prepare content for return (use error message if failed)
         if result.success:
@@ -924,7 +1133,8 @@ Iteration 3: Done
             content=f"Tool '{tool_name}' result: {content}",
             obs_type=obs_type,
             is_critical=not result.success,
-            tool_name=tool_name
+            tool_name=tool_name,
+            success=result.success
         )
         
         # Track tool call
@@ -954,10 +1164,10 @@ Iteration 3: Done
         if not approved:
             # Record rejection
             self.context_manager.add_rejection(command, "User rejected command")
-            # 记录到任务文档
+            # Record to task document
             if self.episodic_memory:
                 self.episodic_memory.add_finding(
-                    f"用户拒绝命令: {command}",
+                    f"User rejected command: {command}",
                     category="rejection"
                 )
             return {
@@ -966,18 +1176,31 @@ Iteration 3: Done
                 "success": False
             }
         
+        # ============ Check command cache ============
+        cache_warning = None
+        if self.working_memory:
+            is_cached, cache_message = self.working_memory.check_command_cache(command)
+            if is_cached:
+                cache_warning = cache_message
+        
         result = self.tool_executor.execute("execute_command", {"command": command})
         
-        # ============ 更新工作记忆 ============
+        # ============ Update working memory ============
         if self.working_memory:
-            self.working_memory.add_command(command, result.success)
+            self.working_memory.add_command(command, result.success, result.output)
+            
+        # If cache warning exists, add to result
+        if cache_warning:
+            result.output = f"{cache_warning}\n\n=== Command still executed, output below ===\n{result.output}"
         
         # Add to context manager
         obs_type = ObservationType.ERROR if not result.success else ObservationType.COMMAND_RESULT
         self.context_manager.add_observation(
             content=f"Command '{command}' result: {result.output[:500]}",
             obs_type=obs_type,
-            is_critical=not result.success
+            is_critical=not result.success,
+            tool_name="execute_command",
+            success=result.success
         )
         
         return {
@@ -985,6 +1208,72 @@ Iteration 3: Done
             "content": result.output[:500],
             "success": result.success
         }
+    
+    def _extract_facts_from_command(self, command: str, output: str):
+        """
+        Intelligently extract known facts from command execution results.
+        
+        Args:
+            command: Executed command
+            output: Command output
+        """
+        import re
+        cmd_lower = command.lower()
+        
+        # mkdir command - record directory creation
+        if 'mkdir' in cmd_lower and ('success' in output.lower() or output.strip() == ''):
+            match = re.search(r'mkdir\s+(?:-p\s+)?([^\s&|;]+)', command)
+            if match:
+                dir_path = match.group(1).strip()
+                self.working_memory.add_known_fact(f"Directory {dir_path} created")
+        
+        # git init command - record repository initialization
+        if 'git init' in cmd_lower and 'initialized' in output.lower():
+            # Extract directory
+            if 'cd ' in command:
+                match = re.search(r'cd\s+([^\s&|;]+)', command)
+                if match:
+                    dir_path = match.group(1).strip()
+                    self.working_memory.add_known_fact(f"Git repository initialized in {dir_path}")
+            else:
+                self.working_memory.add_known_fact("Git repository initialized in current directory")
+        
+        # git commit command - record commit
+        if 'git commit' in cmd_lower and ('file' in output.lower() or 'commit' in output.lower()):
+            self.working_memory.add_known_fact("Git commit completed")
+        
+        # File creation (via echo, cat, etc.)
+        if ('>' in command or 'cat >' in command):
+            # Extract file path
+            match = re.search(r'>\s*([^\s&|;\'\"]+)', command)
+            if match:
+                file_path = match.group(1).strip()
+                self.working_memory.add_known_fact(f"File {file_path} created")
+    
+    def _get_compact_tool_list(self) -> str:
+        """
+        Generate compact tool list (names only, reduce token consumption).
+        
+        Returns:
+            Compact tool name list
+        """
+        tool_names = [t.name for t in self.tools]
+        # Group by category
+        file_tools = [t for t in tool_names if any(k in t for k in ['file', 'read', 'write', 'edit', 'delete', 'insert', 'tree', 'list_files'])]
+        git_tools = [t for t in tool_names if t.startswith('git_')]
+        search_tools = [t for t in tool_names if any(k in t for k in ['search', 'grep', 'find', 'symbol'])]
+        docker_tools = [t for t in tool_names if t.startswith('docker_')]
+        system_tools = [t for t in tool_names if any(k in t for k in ['system', 'process', 'command', 'terminal', 'env'])]
+        network_tools = [t for t in tool_names if any(k in t for k in ['http', 'port'])]
+        
+        return f"""
+  📁 Files({len(file_tools)}): {', '.join(file_tools)}
+  🔍 Search({len(search_tools)}): {', '.join(search_tools)}
+  📦 Git({len(git_tools)}): {', '.join(git_tools)}
+  🐳 Docker({len(docker_tools)}): {', '.join(docker_tools)}
+  💻 System({len(system_tools)}): {', '.join(system_tools)}
+  🌐 Network({len(network_tools)}): {', '.join(network_tools)}
+"""
     
     def _parse_action(self, response: str) -> Optional[Dict[str, Any]]:
         """Parse LLM response to extract action."""
