@@ -15,6 +15,8 @@ from clis.tools.filesystem.search_replace import SearchReplaceTool
 from clis.tools.filesystem.find_definition import FindDefinitionTool
 from clis.tools.filesystem.find_references import FindReferencesTool
 from clis.tools.filesystem.get_symbols import GetSymbolsTool
+
+# Import new tools
 from clis.tools.filesystem.insert_code import InsertCodeTool
 from clis.tools.filesystem.delete_lines import DeleteLinesTool
 
