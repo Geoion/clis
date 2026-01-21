@@ -240,7 +240,7 @@ class ContextManagementConfig(BaseModel):
 
 
 class PEVLModelsConfig(BaseModel):
-    """PEVL 模型配置"""
+    """PEVL model configuration"""
     
     analyzer: str = Field(default="deepseek-r1", description="Task analyzer model")
     planner: str = Field(default="deepseek-r1", description="Planning model")
@@ -249,15 +249,19 @@ class PEVLModelsConfig(BaseModel):
 
 
 class PEVLReplanConfig(BaseModel):
-    """PEVL 重规划配置"""
+    """PEVL replanning configuration"""
     
     enabled: bool = Field(default=True, description="Enable replanning on failure")
     min_confidence: float = Field(default=0.6, description="Minimum confidence to trigger replan")
-    max_rounds: int = Field(default=3, description="Maximum PEVL loop rounds")
+    max_rounds: int = Field(default=3, description="Maximum PEVL loop rounds (1-5, recommended: 3)")
+    
+    # StateMachine configuration
+    enable_loop_detection: bool = Field(default=True, description="Enable loop detection in Phase 2")
+    max_iterations_per_round: int = Field(default=10, description="Max iterations per round")
 
 
 class PEVLConfig(BaseModel):
-    """PEVL (Plan-Execute-Verify Loop) 配置"""
+    """PEVL (Plan-Execute-Verify Loop) configuration"""
     
     enabled: bool = Field(default=True, description="Enable PEVL mode")
     cost_limit: float = Field(default=50.0, description="Max cost per task in USD")
