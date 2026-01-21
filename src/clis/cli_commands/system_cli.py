@@ -147,7 +147,7 @@ def init(provider: str = None) -> None:
     """Initialize CLIS configuration (interactive wizard)
     
     This will create configuration files in ~/.clis/config/ with
-    detailed comments in both English and Chinese.
+    detailed comments.
     """
     from clis.config import ConfigManager
     
