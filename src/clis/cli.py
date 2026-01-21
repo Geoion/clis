@@ -231,6 +231,11 @@ def execute_query_pevl(query: str, verbose: bool = False, minimal: bool = False,
             
             elif step_type == "error":
                 console.print(f"\n[red]Error: {step['content']}[/red]")
+            
+            elif step_type == "debug":
+                # Display debug info (only in debug mode)
+                if debug:
+                    console.print(f"   [dim cyan]{step['content']}[/dim cyan]")
         
     except KeyboardInterrupt:
         console.print("\n\n[yellow]Task cancelled[/yellow]")
@@ -899,6 +904,11 @@ def execute_query_interactive(query: str, verbose: bool = False, minimal: bool =
                 elif step_type == "warning":
                     # Display warning message
                     console.print(f"\n   [yellow]Warning: {step['content']}[/yellow]")
+                
+                elif step_type == "debug":
+                    # Display debug info (only in debug mode)
+                    if debug:
+                        console.print(f"   [dim cyan]{step['content']}[/dim cyan]")
                 
                 elif step_type == "error":
                     console.print()
