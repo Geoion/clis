@@ -119,14 +119,14 @@ class InteractiveAgent:
             "needs_confirmation": bool (for commands)
         }
         """
-        # ============ 初始化记忆系统 ============
-        # 创建任务记忆
+        # ============ Initialize memory system ============
+        # Create task memory
         self.current_task_id = datetime.now().strftime('%Y%m%d_%H%M%S')
         task_id, task_file = self.memory_manager.create_task_memory(query, self.current_task_id)
         self.episodic_memory = EpisodicMemory(task_id)
         self.episodic_memory.load_or_create(query)
         
-        # 清空工作记忆
+        # Clear working memory
         self.working_memory.clear()
         
         logger.info(f"Task memory created: {task_file}")
@@ -134,7 +134,7 @@ class InteractiveAgent:
         platform = get_platform()
         shell = get_shell()
         
-        # 用于跟踪任务是否成功
+        # Used to track if task is successful
         task_success = True
         
         # Build base system prompt template (will be updated each iteration)
@@ -289,18 +289,18 @@ OR when complete:
             # Yield iteration start (always, for counting)
             yield {"type": "iteration_start", "iteration": iteration + 1}
             
-            # ============ 状态机检测 ============
+            # ============ State machine detection ============
             state_advice = self.state_machine.detect_state(iteration, self.working_memory)
             
-            # 如果是紧急状态(循环或超时),强制提示
+            # If urgent state (loop or timeout), force warning
             if state_advice.is_urgent:
                 logger.warning(f"Urgent state detected: {state_advice.message}")
                 yield {
                     "type": "warning",
-                    "content": f"{state_advice.message}\n建议: {'; '.join(state_advice.suggested_actions)}"
+                    "content": f"{state_advice.message}\nSuggestions: {'; '.join(state_advice.suggested_actions)}"
                 }
             
-            # 更新进度
+            # Update progress
             self.working_memory.update_phase(
                 state_advice.state.value,
                 f"{iteration + 1}/{self.max_iterations}"
@@ -349,19 +349,19 @@ OR when complete:
             
             # Handle completion
             if action_type == "done":
-                # ============ 完成任务记忆 ============
+                # ============ Complete task memory ============
                 summary = action.get("summary", "Task completed")
-                self.episodic_memory.update_step("任务完成", "done")
-                self.episodic_memory.update_next_action(f"✅ 已完成: {summary}")
+                self.episodic_memory.update_step("Task completed", "done")
+                self.episodic_memory.update_next_action(f"✅ Completed: {summary}")
                 
-                # 完成任务
+                # Complete task
                 self.memory_manager.complete_task(
                     self.current_task_id,
                     success=task_success,
                     extract_knowledge=True
                 )
                 
-                # 显示统计
+                # Show statistics
                 stats = self.working_memory.get_stats()
                 logger.info(f"Task completed. Stats: {stats}")
                 
@@ -379,23 +379,23 @@ OR when complete:
                 tool_name = action.get("tool")
                 params = action.get("params", {})
                 
-                # ============ 更新工作记忆 ============
+                # ============ Update working memory ============
                 self.working_memory.increment_tool(tool_name)
                 
-                # 特殊处理: 文件读取
+                # Special handling: file reading
                 if tool_name == 'read_file':
                     file_path = params.get('path', '')
                     is_new = self.working_memory.add_file_read(file_path)
                     
                     if not is_new:
-                        # 重复读取!强制警告
-                        warning_msg = f"⚠️ 警告: 文件 '{file_path}' 已经读过!可能陷入循环。"
+                        # Repeated read! Force warning
+                        warning_msg = f"⚠️ Warning: File '{file_path}' already read! May be stuck in loop."
                         yield {
                             "type": "warning",
                             "content": warning_msg
                         }
                         self.episodic_memory.add_finding(
-                            f"重复读取文件: {file_path}",
+                            f"Repeated file read: {file_path}",
                             category="warning"
                         )
                 
@@ -493,18 +493,18 @@ OR when complete:
                         "success": result.success
                     })
                     
-                    # ============ 更新记忆系统 ============
-                    # 记录文件写入
+                    # ============ Update memory system ============
+                    # Record file writes
                     if tool_name in ('write_file', 'edit_file'):
                         file_path = params.get('path', '')
                         self.working_memory.add_file_written(file_path)
-                        self.episodic_memory.update_step(f"写入文件: {file_path}", "done")
+                        self.episodic_memory.update_step(f"Write file: {file_path}", "done")
                     
-                    # 记录关键发现
+                    # Record key findings
                     if result.success and tool_name in ('read_file', 'search_files', 'file_tree'):
                         preview = result.output[:100] if result.output else ""
                         self.episodic_memory.add_finding(
-                            f"从 {tool_name}({params}) 获取: {preview}...",
+                            f"From {tool_name}({params}) obtained: {preview}...",
                             category="data"
                         )
                     
@@ -513,7 +513,7 @@ OR when complete:
                         content = result.output[:500] if result.output else "Success"
                     else:
                         content = result.error if result.error else (result.output[:500] if result.output else "Unknown error")
-                        task_success = False  # 标记任务失败
+                        task_success = False  # Mark task as failed
                     
                     # Add to context manager
                     obs_type = ObservationType.ERROR if not result.success else ObservationType.TOOL_RESULT
@@ -572,7 +572,7 @@ OR when complete:
                 # Execute command (low risk, auto-approved)
                 result = self.tool_executor.execute("execute_command", {"command": command})
                 
-                # ============ 更新工作记忆 ============
+                # ============ Update working memory ============
                 self.working_memory.add_command(command, result.success)
                 if not result.success:
                     task_success = False
@@ -604,7 +604,7 @@ OR when complete:
             context_summary = self.context_manager.get_context()
             stats = self.context_manager.get_summary()
             
-            # ============ 注入记忆系统到 prompt ============
+            # ============ Inject memory system to prompt ============
             state_advice_text = self.state_machine.format_advice(state_advice)
             working_memory_text = self.working_memory.to_prompt()
             episodic_memory_text = self.episodic_memory.inject_to_prompt(include_log=False)
@@ -618,24 +618,24 @@ OR when complete:
 {episodic_memory_text}
 
 ╭──────────────────────────────────────────────────────────────╮
-│                  📜 最近观察 (OBSERVATIONS)                   │
+│                  📜 RECENT OBSERVATIONS                       │
 ╰──────────────────────────────────────────────────────────────╯
 
 Previous observations ({stats['total']} total, {stats['critical']} critical):
 {context_summary}
 
 ⚠️ IMPORTANT:
-- 检查工作记忆中的"已读文件"列表,不要重复读取!
-- 查看状态机建议,遵循当前阶段的指导
-- 参考任务记忆中的已完成步骤和关键发现
+- Check "Files Read" list in working memory, don't repeat reading!
+- Review state machine suggestions, follow current phase guidance
+- Refer to completed steps and key findings in task memory
 - If task is COMPLETE, respond with {{"type": "done", "summary": "..."}}
 - Otherwise, take a DIFFERENT action to make progress
 
 What's your next action?"""
         
         # Max iterations reached
-        # ============ 标记任务失败 ============
-        self.episodic_memory.update_step("任务未完成(达到迭代上限)", "done")
+        # ============ Mark task as failed ============
+        self.episodic_memory.update_step("Task incomplete (reached iteration limit)", "done")
         self.memory_manager.complete_task(
             self.current_task_id,
             success=False,
@@ -881,10 +881,10 @@ Iteration 3: Done
                 obs_type=ObservationType.REJECTION,
                 is_critical=True
             )
-            # 记录到任务文档
+            # Record to task document
             if self.episodic_memory:
                 self.episodic_memory.add_finding(
-                    f"用户拒绝工具: {tool_name}({params})",
+                    f"User rejected tool: {tool_name}({params})",
                     category="rejection"
                 )
             return {
@@ -895,7 +895,7 @@ Iteration 3: Done
         
         result = self.tool_executor.execute(tool_name, params)
         
-        # ============ 更新工作记忆 ============
+        # ============ Update working memory ============
         if self.working_memory:
             self.working_memory.increment_tool(tool_name)
             
@@ -906,11 +906,11 @@ Iteration 3: Done
                 file_path = params.get('path', '')
                 self.working_memory.add_file_written(file_path)
         
-        # 更新任务文档
+        # Update task document
         if self.episodic_memory and result.success:
             if tool_name in ('write_file', 'edit_file'):
                 file_path = params.get('path', '')
-                self.episodic_memory.update_step(f"写入文件: {file_path}", "done")
+                self.episodic_memory.update_step(f"Write file: {file_path}", "done")
         
         # Prepare content for return (use error message if failed)
         if result.success:
@@ -954,10 +954,10 @@ Iteration 3: Done
         if not approved:
             # Record rejection
             self.context_manager.add_rejection(command, "User rejected command")
-            # 记录到任务文档
+            # Record to task document
             if self.episodic_memory:
                 self.episodic_memory.add_finding(
-                    f"用户拒绝命令: {command}",
+                    f"User rejected command: {command}",
                     category="rejection"
                 )
             return {
@@ -968,7 +968,7 @@ Iteration 3: Done
         
         result = self.tool_executor.execute("execute_command", {"command": command})
         
-        # ============ 更新工作记忆 ============
+        # ============ Update working memory ============
         if self.working_memory:
             self.working_memory.add_command(command, result.success)
         

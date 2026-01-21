@@ -1,11 +1,11 @@
 """
-记忆生命周期管理器
+Memory lifecycle manager
 
-职责:
-- 创建和组织记忆文件
-- 自动清理过期记忆
-- 归档长期记忆
-- 提供查询接口
+Responsibilities:
+- Create and organize memory files
+- Auto cleanup expired memories
+- Archive long-term memories
+- Provide query interface
 """
 
 from pathlib import Path
@@ -17,19 +17,19 @@ from enum import Enum
 
 
 class TaskStatus(Enum):
-    """任务状态"""
-    ACTIVE = "active"           # 进行中
-    COMPLETED = "completed"     # 已完成
-    ARCHIVED = "archived"       # 已归档
-    FAILED = "failed"           # 失败
+    """Task status"""
+    ACTIVE = "active"           # In progress
+    COMPLETED = "completed"     # Completed
+    ARCHIVED = "archived"       # Archived
+    FAILED = "failed"           # Failed
 
 
 class MemoryManager:
     """
-    记忆生命周期管理器
+    Memory lifecycle manager
     
-    管理任务记忆的完整生命周期:
-    创建 → active/ → completed/ → archived/
+    Manages complete lifecycle of task memories:
+    create → active/ → completed/ → archived/
     """
     
     def __init__(self, memory_dir: str = ".clis_memory"):
@@ -41,42 +41,42 @@ class MemoryManager:
         self.knowledge_dir = self.memory_dir / "knowledge"
         self.metadata_file = self.memory_dir / ".metadata.json"
         
-        # 创建目录结构
+        # Create directory structure
         self._ensure_dirs()
         
-        # 加载元数据
+        # Load metadata
         self.metadata = self._load_metadata()
     
     def _ensure_dirs(self):
-        """确保目录结构存在"""
+        """Ensure directory structure exists"""
         for dir_path in [self.active_dir, self.completed_dir, 
                          self.archived_dir, self.knowledge_dir]:
             dir_path.mkdir(parents=True, exist_ok=True)
     
     def _load_metadata(self) -> Dict:
-        """加载记忆元数据"""
+        """Load memory metadata"""
         if self.metadata_file.exists():
             try:
                 return json.loads(self.metadata_file.read_text(encoding='utf-8'))
             except (json.JSONDecodeError, Exception):
-                # 元数据损坏,返回默认值
+                # Metadata corrupted, return default
                 return {"tasks": {}, "config": self._default_config()}
         return {"tasks": {}, "config": self._default_config()}
     
     def _save_metadata(self):
-        """保存元数据"""
+        """Save metadata"""
         self.metadata_file.write_text(
             json.dumps(self.metadata, indent=2, ensure_ascii=False),
             encoding='utf-8'
         )
     
     def _default_config(self) -> Dict:
-        """默认配置"""
+        """Default configuration"""
         return {
-            "retention_days": 7,      # 已完成任务保留天数
-            "auto_archive": True,     # 自动归档
-            "auto_cleanup": True,     # 自动清理
-            "max_active_tasks": 10,   # 最大并发任务数
+            "retention_days": 7,      # Days to keep completed tasks
+            "auto_archive": True,     # Auto archive
+            "auto_cleanup": True,     # Auto cleanup
+            "max_active_tasks": 10,   # Max concurrent tasks
         }
     
     def create_task_memory(
@@ -85,11 +85,11 @@ class MemoryManager:
         task_id: Optional[str] = None
     ) -> tuple[str, Path]:
         """
-        创建新的任务记忆
+        Create new task memory
         
         Args:
-            task_description: 任务描述
-            task_id: 任务ID (可选,不提供则自动生成)
+            task_description: Task description
+            task_id: Task ID (optional, auto-generated if not provided)
             
         Returns:
             (task_id, file_path)
@@ -99,10 +99,10 @@ class MemoryManager:
         
         task_file = self.active_dir / f"task_{task_id}.md"
         
-        # 记录元数据
+        # Record metadata
         self.metadata["tasks"][task_id] = {
             "status": TaskStatus.ACTIVE.value,
-            "description": task_description[:100],  # 只保存前100字符
+            "description": task_description[:100],  # Save only first 100 chars
             "created_at": datetime.now().isoformat(),
             "file_path": str(task_file.relative_to(self.memory_dir)),
         }
@@ -117,29 +117,29 @@ class MemoryManager:
         extract_knowledge: bool = True
     ):
         """
-        标记任务完成
+        Mark task as complete
         
         Args:
-            task_id: 任务ID
-            success: 是否成功完成
-            extract_knowledge: 是否提取知识到知识库
+            task_id: Task ID
+            success: Whether completed successfully
+            extract_knowledge: Whether to extract knowledge to knowledge base
         """
         if task_id not in self.metadata["tasks"]:
-            # 任务不存在,可能是直接创建的文件,添加元数据
+            # Task doesn't exist, may be directly created file, add metadata
             self.metadata["tasks"][task_id] = {
                 "status": TaskStatus.ACTIVE.value,
                 "description": "Unknown task",
                 "created_at": datetime.now().isoformat(),
             }
         
-        # 移动文件: active → completed
+        # Move file: active → completed
         active_file = self.active_dir / f"task_{task_id}.md"
         completed_file = self.completed_dir / f"task_{task_id}.md"
         
         if active_file.exists():
             shutil.move(str(active_file), str(completed_file))
             
-            # 在文件头部添加完成标记
+            # Add completion marker at file header
             content = completed_file.read_text(encoding='utf-8')
             header = f"""<!-- COMPLETED: {datetime.now().isoformat()} -->
 <!-- SUCCESS: {success} -->
@@ -147,7 +147,7 @@ class MemoryManager:
 """
             completed_file.write_text(header + content, encoding='utf-8')
         
-        # 更新元数据
+        # Update metadata
         self.metadata["tasks"][task_id].update({
             "status": TaskStatus.COMPLETED.value if success else TaskStatus.FAILED.value,
             "completed_at": datetime.now().isoformat(),
@@ -155,21 +155,21 @@ class MemoryManager:
         })
         self._save_metadata()
         
-        # 提取知识
+        # Extract knowledge
         if extract_knowledge and success:
             self._extract_knowledge(task_id, completed_file)
     
     def _extract_knowledge(self, task_id: str, task_file: Path):
         """
-        从任务中提取知识到知识库
+        Extract knowledge from task to knowledge base
         
-        策略:
-        - 提取 "关键发现" 部分
-        - 识别通用模式
-        - 更新项目知识库
+        Strategy:
+        - Extract "Key Findings" section
+        - Identify general patterns
+        - Update project knowledge base
         """
-        # TODO: 实现智能知识提取
-        # 可以调用 LLM 总结任务中的可复用知识
+        # TODO: Implement intelligent knowledge extraction
+        # Can call LLM to summarize reusable knowledge from task
         pass
     
     def archive_old_tasks(self, days: Optional[int] = None):
