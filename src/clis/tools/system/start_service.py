@@ -1,5 +1,5 @@
 """
-启动后台服务工具 - 智能启动并验证服务
+Start background service tool - Intelligently start and verify services
 """
 
 import subprocess
@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 
 
 class StartServiceTool(Tool):
-    """启动后台服务并验证可用性"""
+    """Start background service and verify availability"""
     
     @property
     def name(self) -> str:
@@ -22,7 +22,7 @@ class StartServiceTool(Tool):
     
     @property
     def description(self) -> str:
-        return "启动后台服务（如 web server）并验证端口可用。自动检查端口冲突，等待服务就绪。"
+        return "Start a background service (e.g., web server) and verify port availability. Automatically checks for port conflicts and waits for service readiness."
     
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -31,20 +31,20 @@ class StartServiceTool(Tool):
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "启动服务的命令（如 'python3 app.py'）"
+                    "description": "Command to start the service (e.g., 'python3 app.py')"
                 },
                 "port": {
                     "type": "integer",
-                    "description": "服务监听的端口号"
+                    "description": "Port number the service listens on"
                 },
                 "wait_seconds": {
                     "type": "integer",
                     "default": 5,
-                    "description": "等待服务启动的最大秒数"
+                    "description": "Maximum seconds to wait for service startup"
                 },
                 "working_directory": {
                     "type": "string",
-                    "description": "工作目录（可选）"
+                    "description": "Working directory (optional)"
                 }
             },
             "required": ["command", "port"]
@@ -56,7 +56,7 @@ class StartServiceTool(Tool):
     
     @property
     def risk_score(self) -> int:
-        return 60  # 中高风险（启动进程）
+        return 60  # Medium-high risk (starting process)
     
     @property
     def requires_confirmation(self) -> bool:
@@ -69,24 +69,24 @@ class StartServiceTool(Tool):
         wait_seconds: int = 5,
         working_directory: Optional[str] = None
     ) -> ToolResult:
-        """执行服务启动"""
+        """Execute service startup"""
         try:
-            # 1. 检查端口是否被占用
+            # 1. Check if port is already in use
             if self._is_port_open(port):
                 return ToolResult(
                     success=False,
                     output="",
-                    error=f"""端口 {port} 已被占用！
+                    error=f"""Port {port} is already in use!
 
-💡 解决方案:
-1. 使用其他端口（推荐）: 修改命令中的端口为 {port + 1}
-2. 查看占用进程: lsof -i :{port}
-3. 停止占用进程: lsof -ti:{port} | xargs kill
+💡 Solutions:
+1. Use a different port (recommended): Change the port in the command to {port + 1}
+2. Check which process is using it: lsof -i :{port}
+3. Stop the process using the port: lsof -ti:{port} | xargs kill
 
-⚠️ 请选择一个方案后重试。"""
+⚠️ Please choose a solution and try again."""
                 )
             
-            # 2. 启动进程
+            # 2. Start the process
             import os
             if working_directory:
                 old_dir = os.getcwd()
@@ -101,7 +101,7 @@ class StartServiceTool(Tool):
                     start_new_session=True
                 )
                 
-                # 3. 等待端口可用
+                # 3. Wait for port to become available
                 start_time = time.time()
                 service_ready = False
                 
@@ -114,16 +114,16 @@ class StartServiceTool(Tool):
                 if service_ready:
                     return ToolResult(
                         success=True,
-                        output=f"""✅ 服务已启动并就绪！
+                        output=f"""✅ Service started and ready!
 
 PID: {proc.pid}
-端口: {port}
-状态: 端口已打开，服务可访问
+Port: {port}
+Status: Port is open, service is accessible
 
-可以使用以下命令测试:
+You can test with:
   curl http://localhost:{port}/
   
-停止服务:
+To stop the service:
   kill {proc.pid}
 """,
                         metadata={
@@ -133,11 +133,11 @@ PID: {proc.pid}
                         }
                     )
                 else:
-                    # 服务启动但端口未就绪
+                    # Service started but port not ready
                     return ToolResult(
                         success=False,
-                        output=f"服务已启动 (PID: {proc.pid})，但端口 {port} 未在 {wait_seconds} 秒内就绪",
-                        error="服务可能启动失败，请检查日志",
+                        output=f"Service started (PID: {proc.pid}), but port {port} did not become ready within {wait_seconds} seconds",
+                        error="Service may have failed to start, please check logs",
                         metadata={"pid": proc.pid, "port": port, "ready": False}
                     )
             
@@ -146,15 +146,15 @@ PID: {proc.pid}
                     os.chdir(old_dir)
         
         except Exception as e:
-            logger.error(f"启动服务失败: {e}")
+            logger.error(f"Failed to start service: {e}")
             return ToolResult(
                 success=False,
                 output="",
-                error=f"启动服务失败: {str(e)}"
+                error=f"Failed to start service: {str(e)}"
             )
     
     def _is_port_open(self, port: int) -> bool:
-        """检查端口是否已打开"""
+        """Check if port is open"""
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(1)
         try:
