@@ -19,7 +19,8 @@
 **CLIS** (Command Line Intelligence System) brings Claude Code's intelligent tool calling capabilities to open-source LLMs:
 
 - ✅ **96% cost savings** - < $0.003/query (DeepSeek) vs $20/month (Claude Code)
-- ✅ **31 tools** - Filesystem, Git, Docker, System, Network
+- ✅ **40 tools** - Complete editing, search, analysis capabilities
+- ✅ **智能记忆** - AI 自动参考历史任务经验 ⭐
 - ✅ **Open Skills System** - Customizable domain knowledge (vs Claude's closed skills)
 - ✅ **Offline mode** - Ollama support for complete privacy
 - ✅ **Full control** - User confirmation for all commands
@@ -106,6 +107,42 @@ clis run "list background processes"
 
 ---
 
+## 🧠 智能记忆系统 (新功能)
+
+### 自动历史学习 ⭐
+AI 会**自动参考**相似的历史任务经验：
+
+```bash
+# 第一次做某事
+clis run "配置 Docker 容器"
+# → AI 从零开始学习
+
+# 第二次做类似的事
+clis run "部署 Docker 服务"
+# → 💡 AI 自动找到之前的 Docker 任务
+# → 💡 自动参考历史经验和解决方案
+# → 更快更准确！
+```
+
+### 手动搜索历史
+```bash
+# 搜索相似任务
+clis memory similar "Docker 配置"
+
+# 查看详情
+clis memory show <task_id>
+
+# 查看子任务
+clis memory subtasks <task_id>
+
+# 管理记忆
+clis memory list
+clis memory stats
+clis memory cleanup
+```
+
+---
+
 ## 📋 Commands
 
 ### Core Commands
@@ -118,17 +155,14 @@ clis run "your query"
 clis run "your query" --no-tool-calling
 
 # Create custom skill
-clis new "skill-name"
-clis new "description" --auto  # AI-generated
+clis skill create "skill-name"
+clis skill create "description" --auto  # AI-generated
 
 # List all skills
-clis list
-
-# Edit skill
-clis edit skill-name
+clis skill list
 
 # View configuration
-clis config
+clis config show
 
 # Check health
 clis doctor
@@ -139,21 +173,33 @@ clis --verbose run "your query"
 
 ---
 
-## 🛠️ Available Tools (31)
+## 🛠️ Available Tools (40)
 
-### Filesystem (9)
-- `list_files` - List directory contents
-- `read_file` - Read file content (with intelligent chunking)
-- `write_file` - Write to files
-- `edit_file` - 🆕 Precise file editing with diff preview and dry-run
-- `delete_file` - Delete files
-- `search_files` - Search text in files
-- `grep` - 🆕 Enhanced code search with regex support
-- `read_lints` - 🆕 Read linter errors (flake8, pylint, ruff, eslint)
-- `file_tree` - Display directory tree
-- `get_file_info` - File metadata
+### Filesystem (20)
+**基础操作** (6):
+- `list_files`, `read_file`, `write_file`, `delete_file`, `get_file_info`, `file_tree`
 
-### Git (9) - Complete Workflow
+**搜索功能** (3):
+- `search_files` - 文件内容搜索
+- `grep` - 增强搜索（正则）⭐
+- `codebase_search` - 语义搜索 ⭐
+
+**代码编辑** (4):
+- `edit_file` - 精确编辑（diff 模式）⭐
+- `search_replace` - 批量替换（正则）⭐
+- `insert_code` - 行级插入 ⭐
+- `delete_lines` - 行范围删除 ⭐
+
+**代码分析** (4):
+- `find_definition` - 查找定义 ⭐
+- `find_references` - 查找引用 ⭐
+- `get_symbols` - 提取符号 ⭐
+- `read_lints` - Linter 集成 ⭐
+
+**其他** (3):
+- 各种辅助工具
+
+### Git (8) - Complete Workflow
 - `git_status` - Repository status
 - `git_add` - Stage files
 - `git_commit` - Commit changes
