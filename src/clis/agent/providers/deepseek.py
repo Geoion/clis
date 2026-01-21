@@ -86,7 +86,7 @@ class DeepSeekProvider(LLMProvider):
         logger.debug(f"Temperature: {temp}, Max tokens: {max_tok}, Max reasoning: {max_reasoning}")
         
         try:
-            # 构建请求参数
+            # Build request parameters
             api_params = {
                 "model": self.model,
                 "messages": messages,
@@ -94,7 +94,7 @@ class DeepSeekProvider(LLMProvider):
                 "max_tokens": max_tok,
             }
             
-            # R1 模型支持 reasoning 参数
+            # R1 models support reasoning parameter
             if 'r1' in self.model.lower() and max_reasoning:
                 api_params["max_reasoning_tokens"] = max_reasoning
             
@@ -110,7 +110,7 @@ class DeepSeekProvider(LLMProvider):
                     f"Total: {response.usage.total_tokens}"
                 )
                 
-                # R1 可能有 reasoning tokens
+                # R1 may have reasoning tokens
                 if hasattr(response.usage, 'reasoning_tokens'):
                     usage_msg += f", Reasoning: {response.usage.reasoning_tokens}"
                 
