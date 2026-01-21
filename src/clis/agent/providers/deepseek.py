@@ -23,6 +23,7 @@ class DeepSeekProvider(LLMProvider):
         temperature: float = 0.1,
         max_tokens: int = 2000,
         timeout: int = 30,
+        max_reasoning_tokens: Optional[int] = None,
     ):
         """
         Initialize DeepSeek provider.
@@ -30,15 +31,18 @@ class DeepSeekProvider(LLMProvider):
         Args:
             api_key: DeepSeek API key
             base_url: API base URL
-            model: Model name (deepseek-chat, deepseek-coder)
+            model: Model name (deepseek-chat, deepseek-r1, deepseek-coder)
             temperature: Temperature for generation
             max_tokens: Maximum tokens in response
             timeout: Request timeout in seconds
+            max_reasoning_tokens: Max tokens for reasoning (R1 only)
         """
         super().__init__(api_key, base_url, model, temperature, max_tokens, timeout)
         
         if not api_key:
             raise ValueError("DeepSeek API key is required")
+        
+        self.max_reasoning_tokens = max_reasoning_tokens
         
         self.client = OpenAI(
             api_key=api_key,
@@ -52,6 +56,7 @@ class DeepSeekProvider(LLMProvider):
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        max_reasoning_tokens: Optional[int] = None,
     ) -> str:
         """
         Generate text from prompt using DeepSeek.
@@ -61,6 +66,7 @@ class DeepSeekProvider(LLMProvider):
             system_prompt: System prompt
             temperature: Temperature override
             max_tokens: Max tokens override
+            max_reasoning_tokens: Max reasoning tokens override (R1 only)
             
         Returns:
             Generated text
@@ -74,27 +80,41 @@ class DeepSeekProvider(LLMProvider):
         
         temp = temperature if temperature is not None else self.temperature
         max_tok = max_tokens if max_tokens is not None else self.max_tokens
+        max_reasoning = max_reasoning_tokens if max_reasoning_tokens is not None else self.max_reasoning_tokens
         
         logger.debug(f"Calling DeepSeek API with model {self.model}")
-        logger.debug(f"Temperature: {temp}, Max tokens: {max_tok}")
+        logger.debug(f"Temperature: {temp}, Max tokens: {max_tok}, Max reasoning: {max_reasoning}")
         
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=temp,
-                max_tokens=max_tok,
-            )
+            # 构建请求参数
+            api_params = {
+                "model": self.model,
+                "messages": messages,
+                "temperature": temp,
+                "max_tokens": max_tok,
+            }
+            
+            # R1 模型支持 reasoning 参数
+            if 'r1' in self.model.lower() and max_reasoning:
+                api_params["max_reasoning_tokens"] = max_reasoning
+            
+            response = self.client.chat.completions.create(**api_params)
             
             content = response.choices[0].message.content or ""
             
             # Log token usage
             if response.usage:
-                logger.info(
+                usage_msg = (
                     f"Token usage - Input: {response.usage.prompt_tokens}, "
                     f"Output: {response.usage.completion_tokens}, "
                     f"Total: {response.usage.total_tokens}"
                 )
+                
+                # R1 可能有 reasoning tokens
+                if hasattr(response.usage, 'reasoning_tokens'):
+                    usage_msg += f", Reasoning: {response.usage.reasoning_tokens}"
+                
+                logger.info(usage_msg)
             
             return content
         
@@ -108,6 +128,7 @@ class DeepSeekProvider(LLMProvider):
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        max_reasoning_tokens: Optional[int] = None,
     ) -> Generator[str, None, None]:
         """
         Generate text from prompt using DeepSeek with streaming.
@@ -117,6 +138,7 @@ class DeepSeekProvider(LLMProvider):
             system_prompt: System prompt
             temperature: Temperature override
             max_tokens: Max tokens override
+            max_reasoning_tokens: Max reasoning tokens override (R1 only)
             
         Yields:
             Text chunks as they are generated
@@ -130,18 +152,24 @@ class DeepSeekProvider(LLMProvider):
         
         temp = temperature if temperature is not None else self.temperature
         max_tok = max_tokens if max_tokens is not None else self.max_tokens
+        max_reasoning = max_reasoning_tokens if max_reasoning_tokens is not None else self.max_reasoning_tokens
         
         logger.debug(f"Calling DeepSeek API (streaming) with model {self.model}")
-        logger.debug(f"Temperature: {temp}, Max tokens: {max_tok}")
+        logger.debug(f"Temperature: {temp}, Max tokens: {max_tok}, Max reasoning: {max_reasoning}")
         
         try:
-            stream = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=temp,
-                max_tokens=max_tok,
-                stream=True,  # Enable streaming
-            )
+            api_params = {
+                "model": self.model,
+                "messages": messages,
+                "temperature": temp,
+                "max_tokens": max_tok,
+                "stream": True,
+            }
+            
+            if 'r1' in self.model.lower() and max_reasoning:
+                api_params["max_reasoning_tokens"] = max_reasoning
+            
+            stream = self.client.chat.completions.create(**api_params)
             
             # Track tokens for logging
             total_tokens = 0
