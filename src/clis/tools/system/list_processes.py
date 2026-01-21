@@ -60,13 +60,13 @@ class ListProcessesTool(Tool):
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
             
-            # Sort processes
+            # Sort processes (handle None values)
             if sort_by == "cpu":
-                processes.sort(key=lambda p: p['cpu_percent'], reverse=True)
+                processes.sort(key=lambda p: p['cpu_percent'] if p['cpu_percent'] is not None else 0, reverse=True)
             elif sort_by == "memory":
-                processes.sort(key=lambda p: p['memory_percent'], reverse=True)
+                processes.sort(key=lambda p: p['memory_percent'] if p['memory_percent'] is not None else 0, reverse=True)
             else:  # name
-                processes.sort(key=lambda p: p['name'].lower())
+                processes.sort(key=lambda p: p['name'].lower() if p['name'] else '')
             
             # Limit results
             processes = processes[:limit]
@@ -76,7 +76,9 @@ class ListProcessesTool(Tool):
             output += "-" * 60 + "\n"
             
             for proc in processes:
-                output += f"{proc['pid']:<10} {proc['name']:<30} {proc['cpu_percent']:<10.1f} {proc['memory_percent']:<10.2f}\n"
+                cpu = proc['cpu_percent'] if proc['cpu_percent'] is not None else 0.0
+                mem = proc['memory_percent'] if proc['memory_percent'] is not None else 0.0
+                output += f"{proc['pid']:<10} {proc['name']:<30} {cpu:<10.1f} {mem:<10.2f}\n"
             
             return ToolResult(
                 success=True,
