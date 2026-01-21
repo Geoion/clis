@@ -1,11 +1,11 @@
 """
-共享记忆模块 - 多 Agent 协作的记忆共享机制
+Shared Memory Module - Memory sharing mechanism for multi-Agent collaboration
 
-特点:
-- 支持多个 Agent 实例之间的记忆共享
-- 基于文件系统的简单共享机制
-- 支持记忆锁定和并发控制
-- 自动同步和合并记忆
+Features:
+- Support memory sharing between multiple Agent instances
+- Simple file-system-based sharing mechanism
+- Support memory locking and concurrency control
+- Automatic synchronization and memory merging
 """
 
 from pathlib import Path
@@ -22,18 +22,18 @@ logger = get_logger(__name__)
 
 
 class SimpleLock:
-    """简单的基于文件的锁（无需外部依赖）"""
+    """Simple file-based lock (no external dependencies)"""
     
     def __init__(self, lock_file: str, timeout: int = 10):
         self.lock_file = Path(lock_file)
         self.timeout = timeout
     
     def __enter__(self):
-        """获取锁"""
+        """Acquire lock"""
         start_time = time.time()
         while self.lock_file.exists():
             if time.time() - start_time > self.timeout:
-                # 超时，强制删除锁（可能是僵尸锁）
+                # Timeout, force delete lock (may be zombie lock)
                 try:
                     self.lock_file.unlink()
                 except:
@@ -41,12 +41,12 @@ class SimpleLock:
                 break
             time.sleep(0.05)
         
-        # 创建锁文件
+        # Create lock file
         self.lock_file.touch()
         return self
     
     def __exit__(self, *args):
-        """释放锁"""
+        """Release lock"""
         try:
             self.lock_file.unlink()
         except:
@@ -55,12 +55,12 @@ class SimpleLock:
 
 class SharedMemory:
     """
-    共享记忆 - 多 Agent 协作的记忆共享
+    Shared Memory - Memory sharing for multi-Agent collaboration
     
-    使用场景:
-    - 多个 Agent 实例协作完成任务
-    - 共享发现和知识
-    - 避免重复工作
+    Use cases:
+    - Multiple Agent instances collaborate to complete tasks
+    - Share discoveries and knowledge
+    - Avoid duplicate work
     """
     
     def __init__(self, session_id: str, memory_dir: str = ".clis_memory"):
@@ -70,32 +70,32 @@ class SharedMemory:
         self.session_file = self.shared_dir / f"session_{session_id}.json"
         self.lock_file = self.shared_dir / f"session_{session_id}.lock"
         
-        # 确保目录存在
+        # Ensure directory exists
         self.shared_dir.mkdir(parents=True, exist_ok=True)
         
-        # Agent ID（自动生成）
+        # Agent ID (auto-generated)
         self.agent_id = f"agent_{threading.current_thread().ident}"
         
-        # 共享数据
+        # Shared data
         self.shared_data: Dict[str, Any] = {}
         
-        # 加载共享数据
+        # Load shared data
         self._load_shared_data()
     
     def write_finding(self, finding: str, category: str = "general"):
         """
-        写入发现到共享记忆
+        Write finding to shared memory
         
         Args:
-            finding: 发现内容
-            category: 分类
+            finding: Finding content
+            category: Category
         """
         try:
             with SimpleLock(str(self.lock_file), timeout=2):
-                # 重新加载以获取最新数据
+                # Reload to get latest data
                 self._load_shared_data()
                 
-                # 添加发现
+                # Add finding
                 if 'findings' not in self.shared_data:
                     self.shared_data['findings'] = []
                 
@@ -106,13 +106,13 @@ class SharedMemory:
                     "timestamp": datetime.now().isoformat()
                 })
                 
-                # 保存
+                # Save
                 self._save_shared_data()
                 
                 logger.info(f"Agent {self.agent_id} added finding to shared memory")
         except Exception as e:
             logger.error(f"Failed to write finding: {e}")
-            # 降级：直接写入不加锁
+            # Fallback: write directly without lock
             self._load_shared_data()
             if 'findings' not in self.shared_data:
                 self.shared_data['findings'] = []
@@ -126,13 +126,13 @@ class SharedMemory:
     
     def read_findings(self, category: Optional[str] = None) -> List[Dict]:
         """
-        读取共享的发现
+        Read shared findings
         
         Args:
-            category: 过滤分类（可选）
+            category: Filter by category (optional)
             
         Returns:
-            发现列表
+            List of findings
         """
         try:
             with SimpleLock(str(self.lock_file), timeout=2):
@@ -145,7 +145,7 @@ class SharedMemory:
                 
                 return findings
         except:
-            # 降级：直接读取不加锁
+            # Fallback: read directly without lock
             self._load_shared_data()
             findings = self.shared_data.get('findings', [])
             if category:
@@ -154,22 +154,22 @@ class SharedMemory:
     
     def update_progress(self, task_name: str, status: str, details: Optional[str] = None):
         """
-        更新任务进度
+        Update task progress
         
         Args:
-            task_name: 任务名称
-            status: 状态（pending, in_progress, completed, failed）
-            details: 详细信息
+            task_name: Task name
+            status: Status (pending, in_progress, completed, failed)
+            details: Detailed information
         """
         try:
             with SimpleLock(str(self.lock_file), timeout=2):
                 self._load_shared_data()
                 
-                # 初始化进度字典
+                # Initialize progress dictionary
                 if 'progress' not in self.shared_data:
                     self.shared_data['progress'] = {}
                 
-                # 更新进度
+                # Update progress
                 self.shared_data['progress'][task_name] = {
                     "agent_id": self.agent_id,
                     "status": status,
@@ -185,13 +185,13 @@ class SharedMemory:
     
     def get_progress(self, task_name: Optional[str] = None) -> Dict:
         """
-        获取任务进度
+        Get task progress
         
         Args:
-            task_name: 任务名称（可选，None 返回所有）
+            task_name: Task name (optional, None returns all)
             
         Returns:
-            进度信息
+            Progress information
         """
         try:
             with SimpleLock(str(self.lock_file), timeout=2):
@@ -204,17 +204,17 @@ class SharedMemory:
                 
                 return progress
         except:
-            # 降级：直接读取
+            # Fallback: read directly
             self._load_shared_data()
             progress = self.shared_data.get('progress', {})
             return progress.get(task_name, {}) if task_name else progress
     
     def register_agent(self, capabilities: Optional[List[str]] = None):
         """
-        注册 Agent
+        Register Agent
         
         Args:
-            capabilities: Agent 的能力列表
+            capabilities: List of Agent capabilities
         """
         try:
             with SimpleLock(str(self.lock_file), timeout=2):
@@ -237,13 +237,13 @@ class SharedMemory:
     
     def get_active_agents(self, timeout_seconds: int = 300) -> List[str]:
         """
-        获取活跃的 Agent 列表
+        Get list of active Agents
         
         Args:
-            timeout_seconds: Agent 超时时间（秒）
+            timeout_seconds: Agent timeout in seconds
             
         Returns:
-            活跃的 Agent ID 列表
+            List of active Agent IDs
         """
         try:
             with SimpleLock(str(self.lock_file), timeout=2):
@@ -263,7 +263,7 @@ class SharedMemory:
             return []
     
     def heartbeat(self):
-        """更新 Agent 心跳"""
+        """Update Agent heartbeat"""
         try:
             with SimpleLock(str(self.lock_file), timeout=2):
                 self._load_shared_data()
@@ -275,33 +275,33 @@ class SharedMemory:
             pass
     
     def to_markdown(self) -> str:
-        """转换为 Markdown 用于注入到 prompt"""
+        """Convert to Markdown for injection into prompt"""
         try:
             with SimpleLock(str(self.lock_file), timeout=2):
                 self._load_shared_data()
         except:
             self._load_shared_data()
             
-            output = f"""## 🤝 共享记忆 (Session: {self.session_id})
+            output = f"""## 🤝 Shared Memory (Session: {self.session_id})
 
-**活跃 Agents**: {len(self.get_active_agents())}
+**Active Agents**: {len(self.get_active_agents())}
 
-### 📋 共享发现 ({len(self.shared_data.get('findings', []))} 条)
+### 📋 Shared Findings ({len(self.shared_data.get('findings', []))} items)
 
 """
             
-            # 显示最近的发现
-            findings = self.shared_data.get('findings', [])[-10:]  # 最近 10 条
+            # Show recent findings
+            findings = self.shared_data.get('findings', [])[-10:]  # Last 10 items
             for finding in findings:
                 output += f"- **[{finding.get('category', 'general')}]** ({finding.get('agent_id', 'unknown')}): {finding.get('content', '')}\n"
             
             output += f"""
 
-### 📊 任务进度
+### 📊 Task Progress
 
 """
             
-            # 显示任务进度
+            # Show task progress
             progress = self.shared_data.get('progress', {})
             for task_name, info in progress.items():
                 status_emoji = {"pending": "⏳", "in_progress": "🔄", "completed": "✅", "failed": "❌"}
@@ -311,7 +311,7 @@ class SharedMemory:
             return output
     
     def _load_shared_data(self):
-        """加载共享数据（不加锁，由调用者加锁）"""
+        """Load shared data (no locking, caller should lock)"""
         if not self.session_file.exists():
             self.shared_data = {
                 "session_id": self.session_id,
@@ -330,7 +330,7 @@ class SharedMemory:
             self.shared_data = {}
     
     def _save_shared_data(self):
-        """保存共享数据（不加锁，由调用者加锁）"""
+        """Save shared data (no locking, caller should lock)"""
         try:
             with open(self.session_file, 'w', encoding='utf-8') as f:
                 json.dump(self.shared_data, f, indent=2, ensure_ascii=False)
