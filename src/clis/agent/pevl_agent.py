@@ -1969,7 +1969,36 @@ Return JSON:
         
         if json_match:
             try:
-                data = json.loads(json_match.group(1))
+                json_str = json_match.group(1)
+                
+                # Fix common JSON escape issues in shell commands
+                # LLMs often generate regex patterns with backslashes that aren't properly escaped for JSON
+                # We need to be careful not to break valid escapes like \n, \t, etc.
+                # Strategy: Replace invalid escape sequences while preserving valid ones
+                
+                # First, protect valid escape sequences by temporarily replacing them
+                valid_escapes = {
+                    r'\"': '\x00QUOTE\x00',
+                    r'\\': '\x00BACKSLASH\x00',
+                    r'\/': '\x00SLASH\x00',
+                    r'\b': '\x00BACKSPACE\x00',
+                    r'\f': '\x00FORMFEED\x00',
+                    r'\n': '\x00NEWLINE\x00',
+                    r'\r': '\x00RETURN\x00',
+                    r'\t': '\x00TAB\x00',
+                }
+                
+                for escape, placeholder in valid_escapes.items():
+                    json_str = json_str.replace(escape, placeholder)
+                
+                # Now fix remaining backslashes (these are the problematic ones)
+                json_str = json_str.replace('\\', '\\\\')
+                
+                # Restore valid escape sequences
+                for escape, placeholder in valid_escapes.items():
+                    json_str = json_str.replace(placeholder, escape)
+                
+                data = json.loads(json_str)
                 
                 # Build ExecutionPlan
                 plan = ExecutionPlan(
