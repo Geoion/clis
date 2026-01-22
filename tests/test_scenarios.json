@@ -1,0 +1,139 @@
+{
+  "test_scenarios": [
+    {
+      "id": 1,
+      "name": "Simple File Creation",
+      "category": "simple",
+      "query": "Create a text file at {test_root}/simple1/hello.txt with content 'Hello World'",
+      "expected_operations": {
+        "react": "2-4",
+        "plan-execute": "2-3"
+      },
+      "expected_winner": "neutral"
+    },
+    {
+      "id": 2,
+      "name": "Simple File Read and Analysis",
+      "category": "simple",
+      "query": "Read {test_root}/simple2/data.txt and count how many lines contain the word 'test'",
+      "setup": "Create data.txt with 5 lines, 2 containing 'test'",
+      "expected_operations": {
+        "react": "2-3",
+        "plan-execute": "2"
+      },
+      "expected_winner": "react"
+    },
+    {
+      "id": 3,
+      "name": "Flask Web Service",
+      "category": "medium",
+      "query": "Create a Flask web service in {test_root}/flask_app with endpoints: /hello (returns 'Hello'), /time (returns current time). Use python3 and create requirements.txt",
+      "expected_operations": {
+        "react": "8-12",
+        "plan-execute": "4-6"
+      },
+      "expected_winner": "plan-execute"
+    },
+    {
+      "id": 4,
+      "name": "Django Project Init",
+      "category": "medium",
+      "query": "Create a Django project in {test_root}/django_app with an app named 'blog', configure SQLite database, and create initial migration",
+      "expected_operations": {
+        "react": "10-15",
+        "plan-execute": "6-8"
+      },
+      "expected_winner": "plan-execute"
+    },
+    {
+      "id": 5,
+      "name": "Git Repository Setup",
+      "category": "medium",
+      "query": "Create a git repository in {test_root}/myrepo, add README.md, .gitignore (Python), and make initial commit with message 'Initial commit'",
+      "expected_operations": {
+        "react": "6-8",
+        "plan-execute": "4-5"
+      },
+      "expected_winner": "plan-execute"
+    },
+    {
+      "id": 6,
+      "name": "Git Branch Operations",
+      "category": "medium",
+      "query": "In {test_root}/gitrepo, create a new branch 'feature', add a file feature.txt, commit it, switch back to main, and merge feature branch",
+      "expected_operations": {
+        "react": "7-9",
+        "plan-execute": "5-6"
+      },
+      "expected_winner": "plan-execute"
+    },
+    {
+      "id": 7,
+      "name": "Multi-file Refactoring",
+      "category": "complex",
+      "query": "In {test_root}/codebase, create 5 Python files, then rename all functions named 'old_func' to 'new_func' across all files",
+      "expected_operations": {
+        "react": "12-15",
+        "plan-execute": "7-9"
+      },
+      "expected_winner": "plan-execute"
+    },
+    {
+      "id": 8,
+      "name": "Docker Service Deployment",
+      "category": "complex",
+      "query": "Create a Docker setup for a Python Flask app in {test_root}/docker_app: Dockerfile, docker-compose.yml, app.py with /health endpoint, requirements.txt",
+      "expected_operations": {
+        "react": "10-14",
+        "plan-execute": "6-8"
+      },
+      "expected_winner": "plan-execute"
+    },
+    {
+      "id": 9,
+      "name": "File Not Found Error",
+      "category": "edge",
+      "query": "Read the file {test_root}/nonexistent/missing.txt and handle the error gracefully",
+      "expected_operations": {
+        "react": "2-4",
+        "plan-execute": "2-3"
+      },
+      "expected_winner": "react",
+      "notes": "ReAct should better handle exploratory error recovery"
+    },
+    {
+      "id": 10,
+      "name": "Permission Error Handling",
+      "category": "edge",
+      "query": "Try to write to /root/test.txt and handle permission error appropriately",
+      "expected_operations": {
+        "react": "2-4",
+        "plan-execute": "2-3"
+      },
+      "expected_winner": "react",
+      "notes": "ReAct should better adapt to unexpected errors"
+    }
+  ],
+  "evaluation_criteria": {
+    "efficiency": {
+      "weight": 0.3,
+      "metrics": ["execution_time", "operation_count"]
+    },
+    "accuracy": {
+      "weight": 0.4,
+      "metrics": ["success_rate", "error_handling"]
+    },
+    "predictability": {
+      "weight": 0.15,
+      "metrics": ["execution_path_variance"]
+    },
+    "memory_quality": {
+      "weight": 0.1,
+      "metrics": ["task_document_completeness", "known_facts_relevance"]
+    },
+    "debuggability": {
+      "weight": 0.05,
+      "metrics": ["log_clarity", "error_messages"]
+    }
+  }
+}
