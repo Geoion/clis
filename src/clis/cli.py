@@ -19,6 +19,42 @@ from clis.safety import SafetyMiddleware
 from clis.utils.platform import get_clis_dir, get_platform
 
 
+def _match_skills_by_keywords(query: str, skills) -> list:
+    """
+    Simple keyword-based skill matching.
+    
+    Args:
+        query: User query
+        skills: List of available skills
+        
+    Returns:
+        List of matched skills
+    """
+    query_lower = query.lower()
+    
+    # Define keywords for each skill (partial matching)
+    skill_patterns = {
+        "FAST_MODE": ["flask", "express", "service", "server", "port", "web", "api", "django", "fastapi"],
+        "EDIT_FILE": ["edit", "modify", "change", "update", "file", "code", "write"],
+        "VERIFIER": ["test", "verify", "check", "validate", "ensure"]
+    }
+    
+    matched = []
+    for skill in skills:
+        # Normalize skill name: uppercase, replace spaces/hyphens with underscores
+        skill_name = skill.name.upper().replace(" ", "_").replace("-", "_")
+        
+        # Check if skill name contains any of our patterns
+        for pattern, keywords in skill_patterns.items():
+            if pattern in skill_name:
+                # Match if any keyword is in query
+                if any(keyword in query_lower for keyword in keywords):
+                    matched.append(skill)
+                    break  # Don't match the same skill multiple times
+    
+    return matched
+
+
 def execute_query_pevl(query: str, verbose: bool = False, minimal: bool = False, debug: bool = False, user_mode: str = "auto") -> None:
     """
     Execute a query in PEVL mode (Plan-Execute-Verify Loop with self-healing).
@@ -48,11 +84,65 @@ def execute_query_pevl(query: str, verbose: bool = False, minimal: bool = False,
         # Build tools
         from clis.agent.pevl_agent import PEVLAgent
         from clis.tools.registry import get_all_tools
+        from clis.tools.vector_search import ToolVectorSearch
         
-        tools = get_all_tools()
+        all_tools = get_all_tools()
         
-        # Initialize PEVL agent
-        agent = PEVLAgent(config_manager=config_manager, tools=tools)
+        # Use vector search to select relevant tools
+        tool_search = ToolVectorSearch(all_tools)
+        
+        # Always include these essential tools
+        always_include = ['read_file', 'write_file', 'execute_command', 'list_files']
+        
+        # Search for relevant tools based on task
+        relevant_tools = tool_search.search_relevant_tools(
+            query,
+            top_k=20,  # Increased from 15 to 20 for better coverage
+            min_similarity=0.20,  # Lowered from 0.25 to 0.20 for more inclusive matching
+            always_include=always_include
+        )
+        
+        # Display tool selection in debug mode
+        if debug:
+            stats = tool_search.get_tool_stats()
+            console.print(f"\n[bold cyan]🔧 Tool Selection:[/bold cyan]")
+            console.print(f"  • Selected {len(relevant_tools)} from {stats['total_tools']} total tools")
+            if stats['embeddings_available']:
+                console.print(f"  • Top tools: {', '.join([t.name for t in relevant_tools[:5]])}")
+            else:
+                console.print(f"  • [yellow]Vector search unavailable, using all tools[/yellow]")
+            console.print()
+        
+        # Search for relevant skills
+        from clis.router import SkillRouter
+        from clis.skills.parser import Skill
+        from clis.skills.vector_search import SkillVectorSearch
+        from typing import List
+        
+        router = SkillRouter()
+        all_skills = router.scan_skills()
+        
+        # Use vector search for skill matching
+        skill_search = SkillVectorSearch(all_skills)
+        relevant_skills = skill_search.search_relevant_skills(
+            query,
+            top_k=3,
+            min_similarity=0.30
+        )
+        
+        # Display matched skills in debug mode
+        if relevant_skills and debug:
+            console.print("[bold cyan]📚 Relevant Skills Found:[/bold cyan]")
+            for skill in relevant_skills:
+                console.print(f"  • [green]{skill.name}[/green]")
+            console.print()
+        
+        # Initialize PEVL agent with selected tools and skills
+        agent = PEVLAgent(
+            config_manager=config_manager,
+            tools=relevant_tools,  # Use selected tools instead of all tools
+            relevant_skills=relevant_skills
+        )
         
         # Display header
         console.print(Panel(
