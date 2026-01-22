@@ -1,13 +1,13 @@
 """
-PEVL Agent 基础功能测试
+PEVL Agent Basic Functionality Tests
 
-测试 Plan-Execute-Verify Loop 的基本流程
+Test the basic flow of Plan-Execute-Verify Loop
 """
 
 import sys
 from pathlib import Path
 
-# 添加项目路径
+# Add project path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from clis.config import ConfigManager
@@ -18,41 +18,41 @@ from clis.tools.registry import get_all_tools
 
 
 def test_task_analyzer():
-    """测试任务分析器"""
+    """Test task analyzer"""
     print("\n" + "="*60)
-    print("测试 1: TaskAnalyzer")
+    print("Test 1: TaskAnalyzer")
     print("="*60 + "\n")
     
     config_manager = ConfigManager()
     agent = Agent(config_manager)
     analyzer = TaskAnalyzer(agent)
     
-    # 测试不同复杂度的任务
+    # Test tasks of different complexity
     test_queries = [
-        "创建一个文本文件",
-        "创建 Flask Web 服务",
-        "部署 Docker 容器并测试",
-        "分析这个项目的架构"
+        "Create a text file",
+        "Create Flask Web service",
+        "Deploy Docker container and test",
+        "Analyze this project's architecture"
     ]
     
     for query in test_queries:
-        print(f"任务: {query}")
+        print(f"Task: {query}")
         try:
             analysis = analyzer.analyze(query)
-            print(f"  复杂度: {analysis.complexity}")
-            print(f"  不确定性: {analysis.uncertainty}")
-            print(f"  推荐模式: {analysis.recommended_mode}")
-            print(f"  预估步骤: {analysis.estimated_steps}")
-            print(f"  推理: {analysis.reasoning[:100]}...")
+            print(f"  Complexity: {analysis.complexity}")
+            print(f"  Uncertainty: {analysis.uncertainty}")
+            print(f"  Recommended mode: {analysis.recommended_mode}")
+            print(f"  Estimated steps: {analysis.estimated_steps}")
+            print(f"  Reasoning: {analysis.reasoning[:100]}...")
             print()
         except Exception as e:
-            print(f"  ❌ 分析失败: {e}\n")
+            print(f"  ❌ Analysis failed: {e}\n")
 
 
 def test_pevl_agent_structure():
-    """测试 PEVL Agent 基本结构"""
+    """Test PEVL Agent basic structure"""
     print("\n" + "="*60)
-    print("测试 2: PEVL Agent 结构")
+    print("Test 2: PEVL Agent Structure")
     print("="*60 + "\n")
     
     config_manager = ConfigManager()
@@ -60,30 +60,30 @@ def test_pevl_agent_structure():
     
     try:
         agent = PEVLAgent(config_manager=config_manager, tools=tools)
-        print(f"✓ PEVL Agent 创建成功")
-        print(f"  工具数量: {len(tools)}")
-        print(f"  最大轮数: {agent.max_rounds}")
+        print(f"✓ PEVL Agent created successfully")
+        print(f"  Tool count: {len(tools)}")
+        print(f"  Max rounds: {agent.max_rounds}")
         print()
     except Exception as e:
-        print(f"❌ 创建失败: {e}\n")
+        print(f"❌ Creation failed: {e}\n")
         import traceback
         traceback.print_exc()
 
 
 def test_pevl_simple_task():
-    """测试 PEVL 执行简单任务"""
+    """Test PEVL executing simple task"""
     print("\n" + "="*60)
-    print("测试 3: PEVL 简单任务执行 (模拟)")
+    print("Test 3: PEVL Simple Task Execution (Simulated)")
     print("="*60 + "\n")
     
     config_manager = ConfigManager()
     tools = get_all_tools()
     agent = PEVLAgent(config_manager=config_manager, tools=tools, max_rounds=2)
     
-    # 简单任务
-    query = "列出当前目录的文件"
+    # Simple task
+    query = "List files in current directory"
     
-    print(f"任务: {query}\n")
+    print(f"Task: {query}\n")
     
     try:
         step_count = 0
@@ -109,45 +109,45 @@ def test_pevl_simple_task():
                 print(f"[Error] {step.get('content')}")
                 break
             
-            # 限制步骤数避免测试卡住
+            # Limit steps to avoid test hanging
             if step_count > 50:
-                print("[Warning] 步骤超过50,停止测试")
+                print("[Warning] Steps exceeded 50, stopping test")
                 break
         
-        print(f"\n✓ 测试完成,共 {step_count} 个步骤")
+        print(f"\n✓ Test completed, total {step_count} steps")
         
     except KeyboardInterrupt:
-        print("\n\n❌ 测试中断")
+        print("\n\n❌ Test interrupted")
     except Exception as e:
-        print(f"\n❌ 测试失败: {e}")
+        print(f"\n❌ Test failed: {e}")
         import traceback
         traceback.print_exc()
 
 
 if __name__ == "__main__":
     print("\n" + "="*60)
-    print("PEVL Agent 基础功能测试")
+    print("PEVL Agent Basic Functionality Tests")
     print("="*60)
     
     try:
-        # 测试1: TaskAnalyzer
-        # test_task_analyzer()  # 需要 API key,暂时跳过
+        # Test 1: TaskAnalyzer
+        # test_task_analyzer()  # Requires API key, skip for now
         
-        # 测试2: PEVL Agent 结构
+        # Test 2: PEVL Agent structure
         test_pevl_agent_structure()
         
-        # 测试3: 简单任务执行
-        # test_pevl_simple_task()  # 需要 API,暂时跳过
+        # Test 3: Simple task execution
+        # test_pevl_simple_task()  # Requires API, skip for now
         
         print("\n" + "="*60)
-        print("✓ 所有结构测试通过!")
+        print("✓ All structure tests passed!")
         print("="*60 + "\n")
         
-        print("注意: 完整功能测试需要配置 DeepSeek API key")
-        print("      运行: clis config set llm.api.key YOUR_KEY")
+        print("Note: Full functionality tests require DeepSeek API key configuration")
+        print("      Run: clis config set llm.api.key YOUR_KEY")
         
     except Exception as e:
-        print(f"\n❌ 测试套件失败: {e}")
+        print(f"\n❌ Test suite failed: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
