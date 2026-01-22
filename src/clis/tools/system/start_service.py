@@ -45,6 +45,11 @@ class StartServiceTool(Tool):
                 "working_directory": {
                     "type": "string",
                     "description": "Working directory (optional)"
+                },
+                "auto_find_port": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Automatically find available port if specified port is in use"
                 }
             },
             "required": ["command", "port"]
@@ -67,24 +72,40 @@ class StartServiceTool(Tool):
         command: str,
         port: int,
         wait_seconds: int = 5,
-        working_directory: Optional[str] = None
+        working_directory: Optional[str] = None,
+        auto_find_port: bool = False
     ) -> ToolResult:
         """Execute service startup"""
         try:
             # 1. Check if port is already in use
+            original_port = port
             if self._is_port_open(port):
-                return ToolResult(
-                    success=False,
-                    output="",
-                    error=f"""Port {port} is already in use!
+                if auto_find_port:
+                    # Try to find an available port
+                    port = self._find_available_port(port)
+                    if port is None:
+                        return ToolResult(
+                            success=False,
+                            output="",
+                            error=f"Port {original_port} is in use and no available port found in range {original_port}-{original_port+10}"
+                        )
+                    logger.info(f"Port {original_port} in use, using {port} instead")
+                    # Update command with new port
+                    command = command.replace(f":{original_port}", f":{port}").replace(f"={original_port}", f"={port}")
+                else:
+                    return ToolResult(
+                        success=False,
+                        output="",
+                        error=f"""Port {port} is already in use!
 
 💡 Solutions:
 1. Use a different port (recommended): Change the port in the command to {port + 1}
 2. Check which process is using it: lsof -i :{port}
 3. Stop the process using the port: lsof -ti:{port} | xargs kill
+4. Enable auto_find_port parameter to automatically find available port
 
 ⚠️ Please choose a solution and try again."""
-                )
+                    )
             
             # 2. Start the process
             import os
@@ -152,6 +173,23 @@ To stop the service:
                 output="",
                 error=f"Failed to start service: {str(e)}"
             )
+    
+    def _find_available_port(self, start_port: int, max_attempts: int = 10) -> Optional[int]:
+        """
+        Find an available port starting from start_port.
+        
+        Args:
+            start_port: Starting port number
+            max_attempts: Maximum number of ports to try
+            
+        Returns:
+            Available port number or None
+        """
+        for offset in range(1, max_attempts + 1):
+            port = start_port + offset
+            if not self._is_port_open(port):
+                return port
+        return None
     
     def _is_port_open(self, port: int) -> bool:
         """Check if port is open"""
