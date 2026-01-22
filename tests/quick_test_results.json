@@ -1,0 +1,184 @@
+{
+  "timestamp": "2026-01-22T01:58:41.025145",
+  "test_root": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714",
+  "total_scenarios": 1,
+  "results": [
+    {
+      "mode": "react",
+      "scenario": "Quick Test",
+      "success": false,
+      "execution_time": 77.80854892730713,
+      "operation_count": 20,
+      "tool_calls": [
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        },
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        },
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        },
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        },
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        },
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        },
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        },
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        },
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        },
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        },
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        },
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        },
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        },
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        },
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        },
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        },
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        },
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        },
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        },
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        }
+      ],
+      "memory_stats": {},
+      "task_file": null,
+      "error": "Reached maximum iterations (20)"
+    },
+    {
+      "mode": "plan-execute",
+      "scenario": "Quick Test",
+      "success": false,
+      "execution_time": 9.026855945587158,
+      "operation_count": 2,
+      "tool_calls": [
+        {
+          "tool": "execute_command",
+          "params": {
+            "command": "mkdir -p /var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test"
+          }
+        },
+        {
+          "tool": "write_file",
+          "params": {
+            "path": "/var/folders/6b/t4xf5y1j4gzbqn38d_4j5qgc0000gn/T/clis_test_20260122_015714/quick_test/hello.txt",
+            "content": "Hello from CLIS!"
+          }
+        }
+      ],
+      "memory_stats": {},
+      "task_file": null,
+      "error": "MemoryManager.complete_task() got an unexpected keyword argument 'summary'"
+    }
+  ]
+}
