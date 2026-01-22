@@ -16,14 +16,16 @@
 
 ## 🎯 What is CLIS?
 
-**CLIS** (Command Line Intelligence System) brings Claude Code's intelligent tool calling capabilities to open-source LLMs:
+**CLIS** (Command Line Intelligence System) brings Claude Code's intelligent tool calling capabilities to open-source LLMs with advanced self-healing architecture:
 
+- ✅ **Self-Healing PEVL Architecture** - Plan-Execute-Verify Loop with auto-replanning ⭐ NEW
+- ✅ **Hybrid Model Strategy** - R1 planning + Chat execution (62% cost savings vs pure R1)
+- ✅ **Intelligent Mode Selection** - R1 auto-selects optimal mode (no manual --mode needed) ⭐ NEW
 - ✅ **96% cost savings** - < $0.003/query (DeepSeek) vs $20/month (Claude Code)
-- ✅ **40 tools** - Complete editing, search, analysis capabilities
-- ✅ **智能记忆** - AI 自动参考历史任务经验 ⭐
+- ✅ **42 tools** - Complete editing, search, analysis capabilities
+- ✅ **Intelligent Memory** - AI automatically references historical task experience
 - ✅ **Open Skills System** - Customizable domain knowledge (vs Claude's closed skills)
 - ✅ **Offline mode** - Ollama support for complete privacy
-- ✅ **Full control** - User confirmation for all commands
 - ✅ **Cross-platform** - Windows/macOS/Linux
 
 ---
@@ -56,10 +58,14 @@ clis init --provider qwen       # Chinese-optimized
 ### First Command
 
 ```bash
-# Tool calling is enabled by default
+# Auto mode (default) - R1 selects optimal strategy
+clis run "create Flask web service"
 clis run "list all Python files"
 clis run "show my git changes"
-clis run "show container logs"
+
+# Manual mode selection
+clis run "simple task" --mode=fast     # Quick execution
+clis run "complex task" --mode=auto    # PEVL with self-healing
 ```
 
 ---
@@ -107,35 +113,35 @@ clis run "list background processes"
 
 ---
 
-## 🧠 智能记忆系统 (新功能)
+## 🧠 Intelligent Memory System (New Feature)
 
-### 自动历史学习 ⭐
-AI 会**自动参考**相似的历史任务经验：
+### Automatic Historical Learning ⭐
+AI **automatically references** similar historical task experience:
 
 ```bash
-# 第一次做某事
-clis run "配置 Docker 容器"
-# → AI 从零开始学习
+# First time doing something
+clis run "configure Docker container"
+# → AI learns from scratch
 
-# 第二次做类似的事
-clis run "部署 Docker 服务"
-# → 💡 AI 自动找到之前的 Docker 任务
-# → 💡 自动参考历史经验和解决方案
-# → 更快更准确！
+# Second time doing something similar
+clis run "deploy Docker service"
+# → 💡 AI automatically finds previous Docker tasks
+# → 💡 Automatically references historical experience and solutions
+# → Faster and more accurate!
 ```
 
-### 手动搜索历史
+### Manual History Search
 ```bash
-# 搜索相似任务
-clis memory similar "Docker 配置"
+# Search for similar tasks
+clis memory similar "Docker configuration"
 
-# 查看详情
+# View details
 clis memory show <task_id>
 
-# 查看子任务
+# View subtasks
 clis memory subtasks <task_id>
 
-# 管理记忆
+# Manage memory
 clis memory list
 clis memory stats
 clis memory cleanup
@@ -176,28 +182,28 @@ clis --verbose run "your query"
 ## 🛠️ Available Tools (40)
 
 ### Filesystem (20)
-**基础操作** (6):
+**Basic Operations** (6):
 - `list_files`, `read_file`, `write_file`, `delete_file`, `get_file_info`, `file_tree`
 
-**搜索功能** (3):
-- `search_files` - 文件内容搜索
-- `grep` - 增强搜索（正则）⭐
-- `codebase_search` - 语义搜索 ⭐
+**Search Functions** (3):
+- `search_files` - File content search
+- `grep` - Enhanced search (regex) ⭐
+- `codebase_search` - Semantic search ⭐
 
-**代码编辑** (4):
-- `edit_file` - 精确编辑（diff 模式）⭐
-- `search_replace` - 批量替换（正则）⭐
-- `insert_code` - 行级插入 ⭐
-- `delete_lines` - 行范围删除 ⭐
+**Code Editing** (4):
+- `edit_file` - Precise editing (diff mode) ⭐
+- `search_replace` - Batch replacement (regex) ⭐
+- `insert_code` - Line-level insertion ⭐
+- `delete_lines` - Line range deletion ⭐
 
-**代码分析** (4):
-- `find_definition` - 查找定义 ⭐
-- `find_references` - 查找引用 ⭐
-- `get_symbols` - 提取符号 ⭐
-- `read_lints` - Linter 集成 ⭐
+**Code Analysis** (4):
+- `find_definition` - Find definitions ⭐
+- `find_references` - Find references ⭐
+- `get_symbols` - Extract symbols ⭐
+- `read_lints` - Linter integration ⭐
 
-**其他** (3):
-- 各种辅助工具
+**Others** (3):
+- Various utility tools
 
 ### Git (8) - Complete Workflow
 - `git_status` - Repository status
