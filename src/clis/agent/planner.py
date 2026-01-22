@@ -47,34 +47,44 @@ class ExecutionPlan:
         Returns:
             Plan in Markdown format
         """
-        md = f"""**Execution Plan**
-
-**Task**
+        md = f"""**Task**
 
 {self.query}
 
 **Working Directory**
 
-`{self.working_directory}`
+{self.working_directory}
 
 **Steps ({self.total_steps})**
 
 """
         for step in self.steps:
             deps = f" (depends on: {step.depends_on})" if step.depends_on else ""
-            wd = f"\n • Directory: `{step.working_directory}`" if step.working_directory else ""
-            verify = f"\n • Verify: {step.verify_with}" if step.verify_with else ""
             
-            # Generate JSON string first to avoid brace conflicts in f-string
-            params_json = json.dumps(step.params, ensure_ascii=False)
+            # Format params as indented JSON
+            params_json = json.dumps(step.params, ensure_ascii=False, indent=2)
+            # Indent each line of the JSON for better readability
+            params_lines = params_json.split('\n')
+            params_formatted = '\n   '.join(params_lines)
             
             md += f"""**Step {step.id}: {step.description}**{deps}
 
- • Tool: `{step.tool}`
- • Params: `{params_json}`{wd}{verify}
- • Risk: {step.estimated_risk}
-
+ • **Tool**: `{step.tool}`
+ 
+ • **Params**:
+   ```json
+   {params_formatted}
+   ```
 """
+            
+            # Add optional fields only if present
+            if step.working_directory:
+                md += f" • **Directory**: `{step.working_directory}`\n"
+            
+            if step.verify_with:
+                md += f" • **Verify**: {step.verify_with}\n"
+            
+            md += f" • **Risk**: {step.estimated_risk}\n\n"
         
         # Risk warnings
         if self.risks:
