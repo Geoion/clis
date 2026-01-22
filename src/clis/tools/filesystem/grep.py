@@ -53,7 +53,7 @@ class GrepTool(Tool):
                 },
                 "file_pattern": {
                     "type": "string",
-                    "description": "File pattern to filter (e.g., '*.py', '*.js', default: '*')",
+                    "description": "File pattern to filter. Supports: single pattern ('*.py'), comma-separated ('*.py,*.js'), or brace expansion ('*.{py,js,ts}'). Default: '*'",
                     "default": "*"
                 },
                 "max_results": {
@@ -132,7 +132,30 @@ class GrepTool(Tool):
             if path_obj.is_file():
                 files_to_search = [path_obj]
             else:
-                files_to_search = list(path_obj.rglob(file_pattern))
+                # Handle multiple file patterns (e.g., "*.py,*.js" or "*.{py,js}")
+                if ',' in file_pattern or '{' in file_pattern:
+                    # Parse multiple patterns
+                    patterns = []
+                    if '{' in file_pattern and '}' in file_pattern:
+                        # Handle brace expansion: *.{py,js,ts} -> *.py, *.js, *.ts
+                        import re as re_module
+                        match = re_module.match(r'(.*)\{([^}]+)\}(.*)', file_pattern)
+                        if match:
+                            prefix, extensions, suffix = match.groups()
+                            patterns = [f"{prefix}{ext}{suffix}" for ext in extensions.split(',')]
+                        else:
+                            patterns = [file_pattern]
+                    else:
+                        # Handle comma-separated: *.py,*.js
+                        patterns = [p.strip() for p in file_pattern.split(',')]
+                    
+                    # Search with all patterns
+                    files_to_search = []
+                    for pattern in patterns:
+                        files_to_search.extend(path_obj.rglob(pattern))
+                else:
+                    # Single pattern
+                    files_to_search = list(path_obj.rglob(file_pattern))
             
             for file_path in files_to_search:
                 if not file_path.is_file():
