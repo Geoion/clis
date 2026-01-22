@@ -31,14 +31,69 @@ class PlanStep:
 
 
 @dataclass
+class ToolRecommendation:
+    """Tool recommendation (not prescription)"""
+    tool: str
+    reason: str
+    typical_use: str
+
+
+@dataclass
+class StepGuidance:
+    """Strategic guidance for a step (not detailed plan)"""
+    goal: str
+    success_criteria: str
+    considerations: List[str] = field(default_factory=list)
+    backup_strategy: Optional[str] = None
+
+
+@dataclass
 class ExecutionPlan:
-    """Complete execution plan"""
+    """
+    Strategic execution plan with tool recommendations and high-level guidance
+    
+    Philosophy:
+    - Phase 1.1: Read-only exploration to understand environment
+    - Phase 1.2: Strategic guidance based on exploration findings
+    - NO detailed steps with specific tools/params
+    - Recommend useful tools, but ReAct decides when/how
+    - Provide strategic guidance: goals, criteria, considerations
+    - Learn from skills and historical experiences
+    - Every step executed by ReAct with full autonomy
+    """
     query: str
     working_directory: str
-    steps: List[PlanStep] = field(default_factory=list)
+    
+    # New strategic format
+    exploration_findings: Optional[str] = None  # Results from read-only exploration
+    recommended_tools: List[ToolRecommendation] = field(default_factory=list)
+    step_guidance: List[StepGuidance] = field(default_factory=list)
+    overall_goal: Optional[str] = None
+    lessons_learned: List[str] = field(default_factory=list)
+    
+    # Legacy format (for backward compatibility)
+    first_step: Optional[PlanStep] = None  # Old adaptive format
+    next_steps_guidance: List = field(default_factory=list)  # Old adaptive format
+    steps: List[PlanStep] = field(default_factory=list)  # Old detailed format
     total_steps: int = 0
     estimated_time: str = "unknown"
+    
     risks: List[str] = field(default_factory=list)
+    
+    @property
+    def is_strategic(self) -> bool:
+        """Check if this is a strategic plan (new format)"""
+        return len(self.recommended_tools) > 0 or len(self.step_guidance) > 0
+    
+    @property
+    def is_adaptive(self) -> bool:
+        """Check if this is an adaptive plan (old new format)"""
+        return self.first_step is not None
+    
+    @property
+    def guidance_count(self) -> int:
+        """Number of guidance steps"""
+        return len(self.step_guidance) if self.is_strategic else len(self.next_steps_guidance)
     
     def to_markdown(self) -> str:
         """
@@ -55,19 +110,105 @@ class ExecutionPlan:
 
 {self.working_directory}
 
-**Steps ({self.total_steps})**
+"""
+        
+        # Strategic format (newest)
+        if self.is_strategic:
+            # Show exploration findings if available
+            if self.exploration_findings:
+                md += f"""**🔍 Exploration Findings**
+
+{self.exploration_findings}
 
 """
-        for step in self.steps:
-            deps = f" (depends on: {step.depends_on})" if step.depends_on else ""
             
-            # Format params as indented JSON
-            params_json = json.dumps(step.params, ensure_ascii=False, indent=2)
-            # Indent each line of the JSON for better readability
-            params_lines = params_json.split('\n')
-            params_formatted = '\n   '.join(params_lines)
+            md += f"""**🎯 Overall Goal**
+
+{self.overall_goal}
+
+**🛠️ Recommended Tools** ({len(self.recommended_tools)} tools)
+
+"""
+            for i, tool_rec in enumerate(self.recommended_tools, 1):
+                md += f"""**{i}. {tool_rec.tool}**
+ • **Why**: {tool_rec.reason}
+ • **Typical Use**: {tool_rec.typical_use}
+
+"""
             
-            md += f"""**Step {step.id}: {step.description}**{deps}
+            md += f"""**📋 Step Guidance** ({len(self.step_guidance)} steps)
+
+"""
+            for i, guidance in enumerate(self.step_guidance, 1):
+                md += f"""**Step {i}: {guidance.goal}**
+
+ • **Success Criteria**: {guidance.success_criteria}
+"""
+                if guidance.considerations:
+                    md += " • **Considerations**:\n"
+                    for consideration in guidance.considerations:
+                        md += f"   - {consideration}\n"
+                
+                if guidance.backup_strategy:
+                    md += f" • **Backup Strategy**: {guidance.backup_strategy}\n"
+                md += "\n"
+            
+            if self.lessons_learned:
+                md += f"""**💡 Lessons Learned**
+
+"""
+                for lesson in self.lessons_learned:
+                    md += f" • {lesson}\n"
+                md += "\n"
+        
+        # Adaptive format (old new)
+        elif self.is_adaptive:
+            md += f"""**🎯 First Step** (Detailed)
+
+{self.first_step.description}
+
+ • **Tool**: `{self.first_step.tool}`
+ 
+ • **Params**:
+   ```json
+   {json.dumps(self.first_step.params, ensure_ascii=False, indent=2)}
+   ```
+ • **Expected Output**: {getattr(self.first_step, 'verify_with', 'N/A')}
+ • **Risk**: {self.first_step.estimated_risk}
+
+**📋 Next Steps Guidance** ({len(self.next_steps_guidance)} steps)
+
+"""
+            for i, guidance in enumerate(self.next_steps_guidance, 1):
+                md += f"""**{i}. {guidance.goal}**
+
+ • **Success Criteria**: {guidance.success_criteria}
+"""
+                if guidance.backup_strategy:
+                    md += f" • **Backup Strategy**: {guidance.backup_strategy}\n"
+                md += "\n"
+            
+            if self.overall_goal:
+                md += f"""**🎯 Overall Goal**
+
+{self.overall_goal}
+
+"""
+        
+        # Legacy format (backward compatibility)
+        else:
+            md += f"""**Steps ({self.total_steps})**
+
+"""
+            for step in self.steps:
+                deps = f" (depends on: {step.depends_on})" if step.depends_on else ""
+                
+                # Format params as indented JSON
+                params_json = json.dumps(step.params, ensure_ascii=False, indent=2)
+                params_lines = params_json.split('\n')
+                params_formatted = '\n   '.join(params_lines)
+                
+                md += f"""**Step {step.id}: {step.description}**{deps}
 
  • **Tool**: `{step.tool}`
  
@@ -76,15 +217,15 @@ class ExecutionPlan:
    {params_formatted}
    ```
 """
-            
-            # Add optional fields only if present
-            if step.working_directory:
-                md += f" • **Directory**: `{step.working_directory}`\n"
-            
-            if step.verify_with:
-                md += f" • **Verify**: {step.verify_with}\n"
-            
-            md += f" • **Risk**: {step.estimated_risk}\n\n"
+                
+                # Add optional fields only if present
+                if step.working_directory:
+                    md += f" • **Directory**: `{step.working_directory}`\n"
+                
+                if step.verify_with:
+                    md += f" • **Verify**: {step.verify_with}\n"
+                
+                md += f" • **Risk**: {step.estimated_risk}\n\n"
         
         # Risk warnings
         if self.risks:
@@ -208,13 +349,124 @@ class TaskPlanner:
         # Default simple (bias towards simple)
         return "simple"
     
-    def generate_plan(self, query: str, similar_tasks_text: str = "") -> ExecutionPlan:
+    def explore_environment(self, query: str, tool_executor) -> str:
         """
-        Generate execution plan
+        Phase 1.1: Explore environment with read-only tools
+        
+        Args:
+            query: User query
+            tool_executor: Tool executor for running read-only tools
+            
+        Returns:
+            Exploration findings as formatted text
+        """
+        logger.info("[Planner] Starting read-only exploration phase")
+        
+        exploration_prompt = f"""You are exploring the environment to gather context for planning.
+
+**Task**: {query}
+
+**Available Read-Only Tools**: {', '.join([t.name for t in self.readonly_tools])}
+
+**Exploration Goals**:
+1. Understand the current state (files, directories, git status, etc.)
+2. Identify relevant files and their content
+3. Check for existing patterns or structures
+4. Gather any information that will help with planning
+
+**Instructions**:
+- Use ONLY read-only tools (no modifications)
+- Explore systematically (start broad, then narrow down)
+- Focus on information relevant to the task
+- Stop when you have enough context
+
+**Output Format**:
+For each exploration step, output JSON:
+```json
+{{
+  "reasoning": "Why I'm doing this",
+  "tool": "tool_name",
+  "params": {{"param": "value"}},
+  "done": false
+}}
+```
+
+When done exploring, output:
+```json
+{{
+  "done": true,
+  "findings": "Summary of what I discovered"
+}}
+```
+
+Start exploring:
+"""
+        
+        findings = []
+        max_explorations = 5  # Limit exploration steps
+        
+        for i in range(max_explorations):
+            try:
+                response = self.agent.generate(exploration_prompt)
+                
+                # Parse response
+                import re
+                json_match = re.search(r'```json\s*\n(.*?)\n```', response, re.DOTALL)
+                if not json_match:
+                    logger.warning("[Planner] Could not parse exploration response")
+                    break
+                
+                data = json.loads(json_match.group(1))
+                
+                # Check if done
+                if data.get('done'):
+                    findings_summary = data.get('findings', '')
+                    logger.info(f"[Planner] Exploration complete: {findings_summary[:100]}...")
+                    break
+                
+                # Execute tool
+                tool_name = data.get('tool')
+                tool_params = data.get('params', {})
+                reasoning = data.get('reasoning', '')
+                
+                logger.info(f"[Planner] Exploration step {i+1}: {tool_name} - {reasoning}")
+                
+                result = tool_executor.execute(tool_name, tool_params)
+                
+                finding = f"**Step {i+1}**: {reasoning}\n"
+                finding += f"Tool: {tool_name}\n"
+                if result.success:
+                    finding += f"Result: {result.output[:500]}...\n"
+                else:
+                    finding += f"Error: {result.error[:200]}\n"
+                
+                findings.append(finding)
+                
+                # Update prompt with result
+                exploration_prompt += f"\n\n**Exploration {i+1}**:\n"
+                exploration_prompt += f"Reasoning: {reasoning}\n"
+                exploration_prompt += f"Tool: {tool_name}\n"
+                exploration_prompt += f"Result: {result.output[:300] if result.success else result.error[:200]}\n"
+                exploration_prompt += "\nNext exploration or done:"
+                
+            except Exception as e:
+                logger.error(f"[Planner] Exploration error: {e}")
+                break
+        
+        # Format findings
+        exploration_report = "**Environment Exploration Findings**:\n\n"
+        exploration_report += "\n".join(findings)
+        
+        return exploration_report
+    
+    def generate_plan(self, query: str, similar_tasks_text: str = "", exploration_findings: str = "") -> ExecutionPlan:
+        """
+        Generate execution plan with exploration findings
         
         Args:
             query: User query
             similar_tasks_text: Similar historical task text (optional)
+            exploration_findings: Findings from read-only exploration (optional)
             
         Returns:
             ExecutionPlan object
@@ -222,74 +474,192 @@ class TaskPlanner:
         # Prompt: Request Agent to generate structured plan
         similar_context = ""
         if similar_tasks_text:
-            similar_context = f"\n{similar_tasks_text}\n"
+            similar_context = f"\n**Similar Historical Tasks**:\n{similar_tasks_text}\n"
         
-        prompt = f"""You are a task planner. Generate a detailed execution plan for the following task.
+        exploration_context = ""
+        if exploration_findings:
+            exploration_context = f"\n{exploration_findings}\n"
+        
+        prompt = f"""You are a strategic task planner. Your job is to provide HIGH-LEVEL guidance and tool recommendations based on actual environment exploration.
 
 TASK: {query}
 {similar_context}
+{exploration_context}
+
+PLANNING PHILOSOPHY:
+- Provide strategic guidance, NOT step-by-step instructions
+- Recommend useful tools, but let ReAct decide when/how to use them
+- Learn from skills and historical experiences
+- Focus on WHAT to achieve, not HOW to do it
+- Every step will be executed by ReAct with full decision-making power
 
 OUTPUT FORMAT (JSON):
 ```json
 {{
   "working_directory": "/path/to/work/dir",
-  "steps": [
+  "recommended_tools": [
     {{
-      "id": 1,
-      "description": "Step description",
       "tool": "tool_name",
-      "params": {{"param1": "value1"}},
-      "working_directory": "/optional/specific/dir",
-      "verify_with": "optional verification method",
-      "estimated_risk": "low|medium|high"
+      "reason": "Why this tool might be useful",
+      "typical_use": "Common usage pattern"
     }}
   ],
-  "risks": ["risk 1", "risk 2"]
+  "step_guidance": [
+    {{
+      "goal": "What to achieve",
+      "success_criteria": "How to know it's done",
+      "considerations": ["Thing to consider 1", "Thing to consider 2"],
+      "backup_strategy": "What to try if primary approach fails"
+    }}
+  ],
+  "overall_goal": "Final success criteria for the entire task",
+  "lessons_learned": ["Lesson from skills/history 1", "Lesson 2"],
+  "risks": ["potential risk 1", "potential risk 2"]
 }}
 ```
 
-AVAILABLE TOOLS (readonly only for planning):
+AVAILABLE TOOLS:
 {', '.join([t.name for t in self.readonly_tools])}
 
 GUIDELINES:
-1. **KEEP IT SIMPLE**: Break task into 2-4 concrete steps (NOT 5-7!)
-2. **MERGE OPERATIONS**: Combine related actions in one step
-   - Example: mkdir + cd → execute_command("mkdir -p /tmp/dir && cd /tmp/dir")
-   - Example: create files → use write_file for each, don't verify after each one
-3. **NO EXCESSIVE VERIFICATION**: Only verify at the END
-   - ❌ BAD: write_file → list_files → write_file → list_files (wasteful!)
-   - ✅ GOOD: write_file → write_file → write_file → verify once
-4. **USE SPECIFIC TOOLS**: Prefer write_file over echo >, prefer git_add over git add
-5. **WORKING DIRECTORY**: Specify once for the whole plan, use absolute paths in params
-6. **GIT OPERATIONS**: Always specify the repository directory
-7. **AVOID REDUNDANCY**: Don't include "check if exists" steps - just create/do it
+1. **NO DETAILED STEPS**: Do NOT specify exact tools and parameters for each step
+2. **RECOMMEND, DON'T PRESCRIBE**: Suggest useful tools, but ReAct will decide
+3. **STRATEGIC GUIDANCE**: Focus on goals, success criteria, and considerations
+4. **LEARN FROM EXPERIENCE**: Include lessons from skills and historical data
+5. **BACKUP STRATEGIES**: Provide alternatives for common failure scenarios
+6. **TRUST ReAct**: Every step will be executed by ReAct with full autonomy
 
 EXAMPLES OF GOOD PLANS:
 
-Example 1: "Create Flask app"
-```json
-{{
-  "working_directory": "/tmp/flask_app",
-  "steps": [
-    {{"id": 1, "tool": "execute_command", "params": {{"command": "mkdir -p /tmp/flask_app"}}}},
-    {{"id": 2, "tool": "write_file", "params": {{"path": "/tmp/flask_app/app.py", "content": "..."}}}},
-    {{"id": 3, "tool": "execute_command", "params": {{"command": "cd /tmp/flask_app && git init && git add . && git commit -m 'init'"}}}}
-  ]
-}}
-```
-
-Example 2: "Edit and commit"
+Example 1: "Analyze TODO comments in src/clis/agent/"
 ```json
 {{
   "working_directory": ".",
-  "steps": [
-    {{"id": 1, "tool": "edit_file", "params": {{"path": "config.py", "old_content": "...", "new_content": "..."}}}},
-    {{"id": 2, "tool": "execute_command", "params": {{"command": "git add config.py && git commit -m 'update config'"}}}}
-  ]
+  "recommended_tools": [
+    {{
+      "tool": "grep",
+      "reason": "Efficiently search for TODO patterns in source files",
+      "typical_use": "grep with pattern='TODO', context_lines for surrounding code"
+    }},
+    {{
+      "tool": "read_file",
+      "reason": "Read specific files if detailed analysis needed",
+      "typical_use": "Read files identified by grep for deeper inspection"
+    }},
+    {{
+      "tool": "write_file",
+      "reason": "Create analysis script if complex processing needed",
+      "typical_use": "Write Python script for categorization, then execute it"
+    }}
+  ],
+  "step_guidance": [
+    {{
+      "goal": "Find all TODO comments in the target directory",
+      "success_criteria": "Have a list of TODO comments with file locations and context",
+      "considerations": [
+        "Python files use # for comments",
+        "May need to search recursively",
+        "Context lines help understand priority"
+      ],
+      "backup_strategy": "If grep fails, try list_files + read_file for each"
+    }},
+    {{
+      "goal": "Categorize TODOs by priority",
+      "success_criteria": "Each TODO has a priority label (HIGH/MEDIUM/LOW/UNKNOWN)",
+      "considerations": [
+        "Look for keywords: urgent, critical, fix, bug (HIGH)",
+        "Look for: should, consider, improve (MEDIUM)",
+        "Default to LOW or UNKNOWN if no keywords",
+        "Avoid complex inline Python scripts"
+      ],
+      "backup_strategy": "If automated categorization fails, present raw TODOs with context"
+    }},
+    {{
+      "goal": "Display top 3 highest priority TODOs",
+      "success_criteria": "Show 3 TODOs with file:line, priority, and description",
+      "considerations": [
+        "Sort by priority (HIGH > MEDIUM > LOW)",
+        "If fewer than 3, show all available",
+        "Format should be clear and actionable"
+      ],
+      "backup_strategy": "If sorting fails, show first 3 found"
+    }}
+  ],
+  "overall_goal": "Display top 3 TODO comments from src/clis/agent/ categorized by priority",
+  "lessons_learned": [
+    "Avoid complex Python inline scripts in execute_command",
+    "Create temporary files for complex processing",
+    "Simple grep + text processing often works better than complex scripts"
+  ],
+  "risks": ["No TODO comments found", "Priority keywords may be ambiguous", "File encoding issues"]
 }}
 ```
 
-Generate a SIMPLE plan (2-4 steps, NO verification steps):
+Example 2: "Create Flask app"
+```json
+{{
+  "working_directory": "/tmp/flask_app",
+  "recommended_tools": [
+    {{
+      "tool": "execute_command",
+      "reason": "Create directories and run git commands",
+      "typical_use": "mkdir -p, git init, git add, git commit"
+    }},
+    {{
+      "tool": "write_file",
+      "reason": "Create application files with content",
+      "typical_use": "Write app.py, requirements.txt, README.md"
+    }},
+    {{
+      "tool": "file_tree",
+      "reason": "Verify directory structure",
+      "typical_use": "Check created files and structure"
+    }}
+  ],
+  "step_guidance": [
+    {{
+      "goal": "Set up project directory structure",
+      "success_criteria": "Directory exists and is accessible",
+      "considerations": [
+        "Check if directory already exists",
+        "Ensure write permissions",
+        "Use absolute path to avoid confusion"
+      ],
+      "backup_strategy": "If mkdir fails, try different directory or check permissions"
+    }},
+    {{
+      "goal": "Create Flask application files",
+      "success_criteria": "app.py, requirements.txt, README.md exist with proper content",
+      "considerations": [
+        "app.py should have basic Flask structure",
+        "requirements.txt should list Flask and dependencies",
+        "README.md should explain how to run",
+        "Use write_file for each file"
+      ],
+      "backup_strategy": "If write fails, check disk space and permissions"
+    }},
+    {{
+      "goal": "Initialize git repository",
+      "success_criteria": "Git repo initialized with initial commit",
+      "considerations": [
+        "Check if git is available",
+        "Add all files before committing",
+        "Use meaningful commit message"
+      ],
+      "backup_strategy": "Skip git if not available or not needed"
+    }}
+  ],
+  "overall_goal": "Working Flask application in /tmp/flask_app with git initialized",
+  "lessons_learned": [
+    "Always check if tools (like git) are available before using",
+    "Create files before trying to commit them",
+    "Use simple commands instead of complex scripts"
+  ],
+  "risks": ["Directory already exists", "Permission issues", "Git not installed", "Disk space"]
+}}
+```
+
+Generate a STRATEGIC plan (tool recommendations + high-level guidance):
 """
         
         # Call LLM to generate plan
@@ -308,7 +678,7 @@ Generate a SIMPLE plan (2-4 steps, NO verification steps):
     
     def _parse_plan_response(self, response: str, query: str) -> ExecutionPlan:
         """
-        Parse LLM plan response
+        Parse LLM plan response (supports both adaptive and legacy formats)
         
         Args:
             response: LLM response text
@@ -333,21 +703,84 @@ Generate a SIMPLE plan (2-4 steps, NO verification steps):
                     risks=data.get('risks', [])
                 )
                 
-                # Parse steps
-                for step_data in data.get('steps', []):
-                    step = PlanStep(
-                        id=step_data['id'],
-                        description=step_data['description'],
-                        tool=step_data['tool'],
-                        params=step_data['params'],
-                        working_directory=step_data.get('working_directory'),
-                        verify_with=step_data.get('verify_with'),
-                        depends_on=step_data.get('depends_on', []),
-                        estimated_risk=step_data.get('estimated_risk', 'low')
-                    )
-                    plan.steps.append(step)
+                # Check if this is strategic format (newest)
+                if 'recommended_tools' in data or 'step_guidance' in data:
+                    # Parse recommended tools
+                    for tool_data in data.get('recommended_tools', []):
+                        tool_rec = ToolRecommendation(
+                            tool=tool_data['tool'],
+                            reason=tool_data['reason'],
+                            typical_use=tool_data['typical_use']
+                        )
+                        plan.recommended_tools.append(tool_rec)
+                    
+                    # Parse step guidance
+                    for guidance_data in data.get('step_guidance', []):
+                        guidance = StepGuidance(
+                            goal=guidance_data['goal'],
+                            success_criteria=guidance_data['success_criteria'],
+                            considerations=guidance_data.get('considerations', []),
+                            backup_strategy=guidance_data.get('backup_strategy')
+                        )
+                        plan.step_guidance.append(guidance)
+                    
+                    # Set other fields
+                    plan.overall_goal = data.get('overall_goal')
+                    plan.lessons_learned = data.get('lessons_learned', [])
+                    plan.total_steps = len(plan.step_guidance)
+                    
+                    logger.info(f"Parsed strategic plan: {len(plan.recommended_tools)} tools, {len(plan.step_guidance)} guidance steps")
                 
-                plan.total_steps = len(plan.steps)
+                # Check if this is adaptive format (old new)
+                elif 'first_step' in data:
+                    # Parse first step
+                    first_step_data = data['first_step']
+                    plan.first_step = PlanStep(
+                        id=1,
+                        description=first_step_data['description'],
+                        tool=first_step_data['tool'],
+                        params=first_step_data['params'],
+                        verify_with=first_step_data.get('expected_output'),
+                        estimated_risk=first_step_data.get('estimated_risk', 'low')
+                    )
+                    
+                    # Parse next steps guidance
+                    for guidance_data in data.get('next_steps_guidance', []):
+                        guidance = NextStepGuidance(
+                            goal=guidance_data['goal'],
+                            success_criteria=guidance_data['success_criteria'],
+                            backup_strategy=guidance_data.get('backup_strategy')
+                        )
+                        plan.next_steps_guidance.append(guidance)
+                    
+                    # Set overall goal
+                    plan.overall_goal = data.get('overall_goal')
+                    
+                    # For compatibility, also set total_steps
+                    plan.total_steps = 1 + len(plan.next_steps_guidance)
+                    
+                    logger.info(f"Parsed adaptive plan: 1 detailed step + {len(plan.next_steps_guidance)} guidance steps")
+                
+                # Legacy format (backward compatibility)
+                elif 'steps' in data:
+                    for step_data in data.get('steps', []):
+                        step = PlanStep(
+                            id=step_data['id'],
+                            description=step_data['description'],
+                            tool=step_data['tool'],
+                            params=step_data['params'],
+                            working_directory=step_data.get('working_directory'),
+                            verify_with=step_data.get('verify_with'),
+                            depends_on=step_data.get('depends_on', []),
+                            estimated_risk=step_data.get('estimated_risk', 'low')
+                        )
+                        plan.steps.append(step)
+                    
+                    plan.total_steps = len(plan.steps)
+                    logger.info(f"Parsed legacy plan: {plan.total_steps} detailed steps")
+                
+                else:
+                    raise ValueError("Plan has neither 'first_step' nor 'steps'")
                 
                 # Validate plan has at least one step
                 if plan.total_steps == 0:
@@ -361,18 +794,22 @@ Generate a SIMPLE plan (2-4 steps, NO verification steps):
                 import traceback
                 traceback.print_exc()
         
-        # Fallback: create simple plan
-        logger.warning("Could not parse plan, creating simple plan")
+        # Fallback: create simple strategic plan
+        logger.warning("Could not parse plan, creating simple fallback plan")
         return ExecutionPlan(
             query=query,
             working_directory=os.getcwd(),
-            steps=[
-                PlanStep(
-                    id=1,
-                    description=query,
-                    tool="execute_command",
-                    params={"command": "echo 'Planning failed, manual execution needed'"}
+            recommended_tools=[],
+            step_guidance=[
+                StepGuidance(
+                    goal="Complete the task",
+                    success_criteria="Task requirements met",
+                    considerations=["Planning failed, use best judgment"],
+                    backup_strategy="Ask for clarification if unclear"
                 )
             ],
-            total_steps=1
+            overall_goal=query,
+            lessons_learned=["Planning failed, proceeding with ReAct"],
+            total_steps=1,
+            risks=["Planning failed, may need manual guidance"]
         )
