@@ -77,7 +77,8 @@ class PEVLAgent:
         self,
         config_manager: Optional[ConfigManager] = None,
         tools: Optional[List[Tool]] = None,
-        max_rounds: int = 3
+        max_rounds: int = 5,
+        relevant_skills: Optional[List] = None
     ):
         """
         Initialize PEVL Agent
@@ -85,11 +86,13 @@ class PEVLAgent:
         Args:
             config_manager: Configuration manager
             tools: Tool list
-            max_rounds: Maximum number of rounds
+            max_rounds: Maximum number of rounds (default: 5)
+            relevant_skills: List of relevant skills for guidance
         """
         self.config_manager = config_manager or ConfigManager()
         self.tools = tools or []
         self.max_rounds = max_rounds
+        self.relevant_skills = relevant_skills or []
         
         # LLM Agents - Will configure different models based on task analysis
         # Default to same agent
@@ -1271,6 +1274,7 @@ Return JSON:
     def _direct_execute(self, query: str) -> Generator[Dict[str, Any], None, None]:
         """
         Direct execute mode (very simple tasks)
+        Now with basic verification!
         
         Args:
             query: User query
@@ -1283,24 +1287,15 @@ Return JSON:
             "content": "Direct Execute Mode (Chat)"
         }
         
-        # TODO: Implement simple single LLM call execution
-        prompt = f"Task: {query}\n\nPlease complete with one tool call. Return JSON: {{\"tool\": \"...\", \"params\": {{}}}}"
+        # Use Fast mode instead (which has proper planning and verification)
+        # Direct mode is now just a wrapper to Fast mode with simplified output
+        logger.info("[PEVL] Direct mode redirecting to Fast mode for better reliability")
         
-        try:
-            response = self.executor_agent.generate(prompt)
-            # Parse and execute
-            # ... (simplified implementation)
-            
-            yield {
-                "type": "complete",
-                "content": "Direct execute completed",
-                "rounds": 0
-            }
-        except Exception as e:
-            yield {
-                "type": "error",
-                "content": f"Direct execution failed: {e}"
-            }
+        # Execute with Fast mode
+        yield from self._fast_plan_execute(query, stream_thinking=False)
+        
+        # Note: We keep the "Direct execute completed" message for UX consistency
+        # but internally use Fast mode for reliability
     
     def _fast_plan_execute(self, query: str, stream_thinking: bool = False) -> Generator[Dict[str, Any], None, None]:
         """
@@ -1726,8 +1721,29 @@ Available tools and their parameters:
 - edit_file: path, old_content, new_content (NOT file_path, NOT content)
 - write_file: path, content (NOT file_path)
 - read_file: path (NOT file_path)
-- execute_command: command (NOT cmd)
+- execute_command: command, working_directory (NOT cmd, NOT cwd)
 - list_files: path (NOT directory)
+
+**CRITICAL TOOL SELECTION RULES**:
+
+1. **edit_file vs write_file**:
+   - Use write_file: Creating NEW file, or COMPLETE rewrite
+   - Use edit_file: Modifying PART of existing file
+   - NEVER use edit_file with empty old_content!
+   - If you want to rewrite entire file → use write_file
+
+2. **edit_file requirements**:
+   - MUST read the file first (add read_file step before edit_file)
+   - old_content MUST be exact content from read_file output
+   - Include enough context to make old_content unique
+
+3. **search_replace vs edit_file**:
+   - Prefer search_replace for simple changes (port numbers, variable names)
+   - Use edit_file only for complex structural changes
+
+4. **Port consistency**:
+   - If you read a file and see port=X, use port X in ALL subsequent steps
+   - OR add a step to change the port in the file first
 
 Output JSON:
 ```json
@@ -1960,7 +1976,46 @@ Requirements:
 
 Task: {query}
 
-Please perform deep analysis and recommend the optimal solution.
+## Complexity Assessment Guidelines
+
+**Simple** (direct/fast mode):
+- Single file operation (read, write, edit ONE file)
+- Single command execution
+- Simple git operation (status, diff, commit)
+- NO multi-step dependencies
+
+**Medium** (fast/hybrid mode):
+- Multiple files (2-5 files)
+- Multiple steps with dependencies
+- Service deployment with configuration
+- Code analysis with categorization
+- Data processing and report generation
+
+**Complex** (hybrid mode):
+- Many files (5+ files)
+- Complex dependencies
+- Multi-stage workflows
+- Requires exploration or research
+
+## Uncertainty Assessment
+
+**Low**: Clear requirements, known tools, deterministic
+**Medium**: Some ambiguity, may need adjustments
+**High**: Unclear requirements, exploration needed
+
+## Mode Selection
+
+- **direct**: ONLY for trivial single-step tasks (read one file, run one command)
+- **fast**: Simple tasks with 2-4 steps, clear dependencies
+- **hybrid**: Medium/complex tasks, or when verification is critical
+- **explore**: Research, investigation, unclear requirements
+
+## CRITICAL Rules
+
+1. If task mentions "create multiple files" → complexity = medium (NOT simple)
+2. If task mentions "analyze and report" → complexity = medium (NOT simple)
+3. If task mentions "test and verify" → use fast/hybrid (NOT direct)
+4. Direct mode should be RARE (< 10% of tasks)
 
 Return JSON:
 {{
