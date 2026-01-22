@@ -367,31 +367,66 @@ Result: {result}
         """
         Detect if stuck in a loop.
         
+        Strategy: Focus on detecting ACTUAL loops (repeated failures),
+        not just frequent use of common tools.
+        
         Returns:
             (is_loop, reason)
         """
-        # Rule 1: Single file read more than 2 times
+        # Rule 1: Single file read more than 3 times (increased from 2)
+        # Reading same file multiple times might be intentional
         file_counts = Counter(self.files_read)
         for file, count in file_counts.items():
-            if count > 2:
+            if count > 3:
                 return True, f"File '{file}' has been read {count} times!"
         
-        # Rule 2: Single tool used more than 5 times (reduced from 10 to 5)
+        # Rule 2: Single tool used excessively (EXCLUDING common tools)
+        # Common tools that should NOT be limited:
+        # - execute_command: Used for many different commands
+        # - write_file: Creating multiple files is normal
+        # - edit_file: Editing multiple files is normal
+        # - grep: Searching multiple patterns is normal
+        common_tools_no_limit = {
+            'execute_command',
+            'write_file', 
+            'edit_file',
+            'grep',
+            'read_file',  # Reading different files is normal
+            'list_files',
+            'git_add',
+            'git_commit'
+        }
+        
         for tool, count in self.tools_used.items():
-            if count > 5:
+            # Skip common tools
+            if tool in common_tools_no_limit:
+                continue
+            
+            # For other tools, limit to 10 times
+            if count > 10:
                 return True, f"Tool '{tool}' has been used {count} times!"
         
-        # Rule 3: Last 5 operations are all read_file
+        # Rule 3: Last 5 operations are reading SAME 1-2 files back and forth
         if len(self.files_read) >= 5:
             recent = self.files_read[-5:]
-            if len(set(recent)) <= 2:  # Only reading 2 files back and forth
-                return True, f"Last 5 operations all reading files: {set(recent)}"
+            unique_files = set(recent)
+            if len(unique_files) <= 2 and len(recent) == 5:
+                # Check if it's actually alternating between same files
+                if recent.count(recent[0]) >= 3:  # Same file appears 3+ times in last 5
+                    return True, f"Repeatedly reading same files: {unique_files}"
         
-        # Rule 4: Detect duplicate commands (new) - relaxed to 5 times
+        # Rule 4: Detect IDENTICAL commands repeated (not just execute_command usage)
         if len(self.commands_run) >= 5:
             recent_cmds = [c['cmd'] for c in self.commands_run[-5:]]
-            if len(set(recent_cmds)) == 1:  # Last 5 are all the same command
-                return True, f"Executed same command 5 times in a row: {recent_cmds[0]}"
+            # Check if last 5 commands are IDENTICAL
+            if len(set(recent_cmds)) == 1:
+                return True, f"Executed identical command 5 times: {recent_cmds[0][:100]}"
+            
+            # Check if last 3 commands are IDENTICAL (stricter for recent)
+            if len(self.commands_run) >= 3:
+                last_3 = [c['cmd'] for c in self.commands_run[-3:]]
+                if len(set(last_3)) == 1:
+                    return True, f"Executed identical command 3 times in a row: {last_3[0][:100]}"
         
         return False, ""
     
