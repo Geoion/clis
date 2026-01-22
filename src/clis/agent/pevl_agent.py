@@ -745,7 +745,12 @@ Start exploring:
                 signature = (tool_name, json.dumps(tool_params, sort_keys=True))
                 exploration_tracker['attempts'].append(signature)
                 
-                yield {"type": "step_start", "content": f"🔍 Exploring: {reasoning}"}
+                yield {
+                    "type": "step_start", 
+                    "content": f"🔍 Exploring: {reasoning}",
+                    "tool": tool_name,
+                    "params": tool_params
+                }
                 
                 # Execute with timeout
                 try:
