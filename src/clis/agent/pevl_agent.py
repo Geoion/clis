@@ -555,6 +555,272 @@ Return JSON format:
                 }
             )
     
+    def _explore_environment_readonly(self, query: str) -> Generator[str, None, None]:
+        """
+        Phase 1.1: Explore environment with read-only tools
+        
+        Args:
+            query: User query
+            
+        Yields:
+            Progress updates
+            
+        Returns:
+            Exploration findings as formatted text
+        """
+        logger.info("[PEVL] Starting read-only exploration")
+        
+        # Track exploration attempts to detect loops
+        exploration_tracker = {
+            'attempts': [],  # List of (tool, params) tuples
+            'results': [],   # List of result summaries
+            'loop_count': 0
+        }
+        
+        def is_repeated_attempt(tool, params):
+            """Check if this exact attempt was made before"""
+            signature = (tool, json.dumps(params, sort_keys=True))
+            return signature in exploration_tracker['attempts']
+        
+        def is_similar_failure(result_summary):
+            """Check if we got similar failure/truncation before"""
+            if not exploration_tracker['results']:
+                return False
+            # Check last 2 results
+            recent = exploration_tracker['results'][-2:]
+            return result_summary in recent
+        
+        def suggest_alternative_tool(failed_tool):
+            """Suggest alternative tool when one fails or loops"""
+            alternatives = {
+                'list_files': 'grep',      # If list fails, try direct search
+                'file_tree': 'grep',       # If tree fails, try direct search
+                'grep': 'read_file',       # If grep fails, try reading specific files
+                'read_file': 'list_files'  # If read fails, try listing
+            }
+            return alternatives.get(failed_tool, 'file_tree')
+        
+        # Read-only tools for exploration
+        readonly_tools = [
+            'read_file', 'list_files', 'file_tree', 'grep', 'search_files',
+            'git_status', 'git_log', 'git_diff', 'git_branch',
+            'codebase_search', 'find_definition', 'find_references', 'get_symbols',
+            'system_info', 'check_command', 'get_env'
+        ]
+        
+        exploration_prompt = f"""You are exploring the environment to gather context for planning.
+
+**Task**: {query}
+
+**Available Read-Only Tools**: {', '.join(readonly_tools)}
+
+**Smart Exploration Strategy**:
+1. **Be Direct**: If looking for specific patterns (like TODO), use grep directly
+2. **Avoid Redundancy**: Don't repeat the same tool with same params
+3. **Handle Truncation**: If output is truncated, use more specific queries
+4. **Stop Early**: Stop as soon as you have enough context (3-5 steps max)
+
+**Tool Selection Priority** (use most direct tool first):
+- Looking for patterns/keywords? → Use `grep` directly
+- Need file list? → Use `list_files` (not file_tree if you just need names)
+- Need file content? → Use `read_file` on specific files
+- Need directory structure? → Use `file_tree` with max_depth=2
+
+**Output Format** - For each step, output JSON:
+```json
+{{
+  "reasoning": "Why I'm exploring this (be specific)",
+  "tool": "tool_name",
+  "params": {{"param": "value"}},
+  "done": false
+}}
+```
+
+When done: `{{"done": true, "summary": "What I learned"}}`
+
+**IMPORTANT**: 
+- Don't repeat failed attempts
+- If output is truncated, try more specific query
+- Use the most direct tool for your goal
+
+Start exploring:
+"""
+        
+        def is_truncated(output):
+            """Detect if output is truncated"""
+            if not output:
+                return False
+            truncation_indicators = [
+                '...',
+                'truncated',
+                '(truncated)',
+                'output truncated',
+                '... (more)',
+            ]
+            output_lower = output.lower()
+            return any(indicator in output_lower for indicator in truncation_indicators)
+        
+        def handle_truncation(tool, params, output):
+            """Suggest better approach when output is truncated"""
+            if tool == 'list_files':
+                # Try grep directly instead
+                return ('grep', {
+                    'pattern': 'TODO',  # Assuming we're looking for TODOs
+                    'path': params.get('path', '.'),
+                    'max_results': 50
+                })
+            elif tool == 'file_tree':
+                # Try with smaller max_depth
+                new_params = params.copy()
+                new_params['max_depth'] = min(params.get('max_depth', 3) - 1, 1)
+                return (tool, new_params)
+            elif tool == 'grep':
+                # Add max_results limit
+                new_params = params.copy()
+                new_params['max_results'] = 20
+                return (tool, new_params)
+            return None
+        
+        findings = []
+        max_steps = 5
+        
+        yield {"type": "info", "content": f"🔍 Starting exploration (max {max_steps} steps)"}
+        
+        for i in range(max_steps):
+            # Progress indication
+            yield {"type": "progress", "content": f"📊 Exploration step {i+1}/{max_steps}"}
+            
+            try:
+                # Generate exploration action
+                import time
+                start_time = time.time()
+                
+                response = self.executor_agent.generate(exploration_prompt)
+                
+                elapsed = time.time() - start_time
+                if elapsed > 20:
+                    yield {"type": "warning", "content": f"⚠️ Step took {elapsed:.1f}s (slower than expected)"}
+                
+                
+                # Parse JSON
+                import re
+                json_match = re.search(r'```json\s*\n(.*?)\n```', response, re.DOTALL)
+                if not json_match:
+                    # Try without code block
+                    json_match = re.search(r'\{.*"done".*\}', response, re.DOTALL)
+                    if not json_match:
+                        logger.warning("[PEVL] Could not parse exploration response")
+                        break
+                
+                data = json.loads(json_match.group(0) if not json_match.groups() else json_match.group(1))
+                
+                # Check if done
+                if data.get('done'):
+                    summary = data.get('summary', 'Exploration complete')
+                    logger.info(f"[PEVL] Exploration done: {summary}")
+                    findings.append(f"**Summary**: {summary}")
+                    break
+                
+                # Execute tool
+                tool_name = data.get('tool')
+                tool_params = data.get('params', {})
+                reasoning = data.get('reasoning', '')
+                
+                # Check for repeated attempts (loop detection)
+                if is_repeated_attempt(tool_name, tool_params):
+                    exploration_tracker['loop_count'] += 1
+                    logger.warning(f"[PEVL] Detected repeated attempt: {tool_name}")
+                    
+                    yield {"type": "warning", "content": f"⚠️ Loop detected! Tried {tool_name} before. Forcing strategy change..."}
+                    
+                    # Force alternative tool
+                    alternative = suggest_alternative_tool(tool_name)
+                    yield {"type": "info", "content": f"💡 Switching to {alternative} instead"}
+                    
+                    # Update exploration prompt to force different approach
+                    exploration_prompt += f"\n\n**IMPORTANT**: {tool_name} was already tried and didn't work. Use {alternative} instead.\n\nNext:"
+                    continue
+                
+                # Record attempt
+                signature = (tool_name, json.dumps(tool_params, sort_keys=True))
+                exploration_tracker['attempts'].append(signature)
+                
+                yield {"type": "step_start", "content": f"🔍 Exploring: {reasoning}"}
+                
+                # Execute with timeout
+                try:
+                    result = self.tool_executor.execute(tool_name, tool_params)
+                except Exception as e:
+                    if "timeout" in str(e).lower():
+                        logger.warning(f"[PEVL] Tool {tool_name} timed out")
+                        yield {"type": "warning", "content": f"⏱️ {tool_name} timed out. Trying alternative..."}
+                        
+                        # Suggest alternative
+                        alternative = suggest_alternative_tool(tool_name)
+                        exploration_prompt += f"\n\n**Timeout**: {tool_name} timed out. Try {alternative} with simpler params.\n\nNext:"
+                        continue
+                    else:
+                        raise
+                
+                if result.success:
+                    # Check for truncation
+                    output_truncated = is_truncated(result.output)
+                    
+                    finding = f"**{i+1}. {reasoning}**\n"
+                    finding += f"Tool: `{tool_name}`\n"
+                    finding += f"Result: {result.output[:300]}...\n"
+                    
+                    if output_truncated:
+                        finding += f"⚠️ Output was truncated\n"
+                    
+                    findings.append(finding)
+                    exploration_tracker['results'].append(result.output[:100])
+                    
+                    if output_truncated:
+                        yield {"type": "warning", "content": f"⚠️ Output truncated. Adjusting strategy..."}
+                        
+                        # Suggest better approach
+                        alternative_approach = handle_truncation(tool_name, tool_params, result.output)
+                        if alternative_approach:
+                            alt_tool, alt_params = alternative_approach
+                            yield {"type": "info", "content": f"💡 Try {alt_tool} for more specific results"}
+                            
+                            # Update prompt with suggestion
+                            exploration_prompt += f"\n\n**Step {i+1}**: Output was truncated. Try {alt_tool} with params {alt_params} for more specific results.\n\nNext:"
+                        else:
+                            yield {"type": "step_result", "content": f"✓ Found (truncated): {result.output[:100]}...", "success": True}
+                            exploration_prompt += f"\n\n**Step {i+1}**:\n{reasoning}\nResult (truncated): {result.output[:200]}\n\nNext:"
+                    else:
+                        yield {"type": "step_result", "content": f"✓ Found: {result.output[:100]}...", "success": True}
+                        
+                        # Update prompt
+                        exploration_prompt += f"\n\n**Step {i+1}**:\n{reasoning}\nResult: {result.output[:200]}\n\nNext:"
+                else:
+                    yield {"type": "step_result", "content": f"✗ Error: {result.error[:100]}", "success": False}
+                    exploration_prompt += f"\n\n**Step {i+1}**: Failed - {result.error[:100]}\n\nNext:"
+                
+            except Exception as e:
+                logger.error(f"[PEVL] Exploration error: {e}")
+                break
+        
+        # Format findings with summary
+        if findings:
+            exploration_report = "## 🔍 Environment Exploration\n\n"
+            exploration_report += "\n\n".join(findings)
+            
+            # Add statistics
+            exploration_report += f"\n\n**Exploration Statistics**:\n"
+            exploration_report += f"- Total steps: {len(findings)}\n"
+            exploration_report += f"- Loops detected: {exploration_tracker['loop_count']}\n"
+            exploration_report += f"- Tools used: {len(set(t for t, _ in exploration_tracker['attempts']))}\n"
+            
+            yield {"type": "info", "content": f"✓ Exploration complete: {len(findings)} steps, {exploration_tracker['loop_count']} loops avoided"}
+            
+            return exploration_report
+        else:
+            yield {"type": "warning", "content": "⚠️ Exploration completed with no findings"}
+            return ""
+    
     def _phase1_planning(
         self,
         query: str,
@@ -563,7 +829,10 @@ Return JSON format:
         stream_thinking: bool = False
     ) -> Generator[Optional[ExecutionPlan], None, None]:
         """
-        Phase 1: Deep planning using R1
+        Phase 1: Strategic planning with read-only exploration
+        
+        Phase 1.1: Read-only exploration (if round 1)
+        Phase 1.2: Strategic guidance generation
         
         Args:
             query: Original query
@@ -574,6 +843,16 @@ Return JSON format:
         Yields:
             ExecutionPlan object (via final yield/return)
         """
+        # Phase 1.1: Read-only exploration (only in round 1)
+        exploration_findings = ""
+        if round_num == 1:
+            yield {"type": "info", "content": "🔍 Phase 1.1: Exploring environment with read-only tools..."}
+            
+            exploration_findings = yield from self._explore_environment_readonly(query)
+            
+            if exploration_findings:
+                yield {"type": "info", "content": f"✓ Exploration complete. Found relevant context."}
+        
         # Build planning prompt with full context
         context_text = ""
         if context:
@@ -668,11 +947,17 @@ Return JSON format:
                     working_state += f"- {fact}\n"
                 working_state += "\n"
         
-        prompt = f"""You are a task planning expert. Please generate a detailed execution plan for the following task.
+        # Add exploration findings to context
+        exploration_context = ""
+        if exploration_findings:
+            exploration_context = f"\n{exploration_findings}\n"
+        
+        prompt = f"""You are a strategic task planner. Generate HIGH-LEVEL guidance based on environment exploration.
 
 Task: {query}
 
 This is round {round_num} of planning.
+{exploration_context}
 {context_text}
 {working_state}
 {historical_context}
@@ -782,8 +1067,35 @@ Output JSON:
                 "content": f"📁 Working directory: {plan.working_directory}"
             }
         
-        # Execute each step
-        for step in plan.steps:
+        # Execute plan based on format
+        if plan.is_strategic:
+            # Strategic plan: Enter ReAct mode immediately with guidance
+            logger.info(f"[PEVL] Strategic plan detected, entering ReAct mode with {len(plan.step_guidance)} guidance steps")
+            
+            yield {
+                "type": "info",
+                "content": f"📋 Strategic plan ready. Entering ReAct mode with {len(plan.step_guidance)} goals..."
+            }
+            
+            # Build guidance context
+            guidance_context = self._build_strategic_context(plan)
+            
+            # Enter ReAct mode from the start
+            react_results = yield from self._execute_with_react_guidance(
+                plan=plan,
+                guidance_context=guidance_context
+            )
+            
+            return react_results
+        
+        elif plan.is_adaptive:
+            # Adaptive plan: execute first step, then let ReAct handle rest
+            steps_to_execute = [plan.first_step]
+        else:
+            # Legacy plan: execute all steps
+            steps_to_execute = plan.steps
+        
+        for step in steps_to_execute:
             self.iteration_count += 1
             
             # ============ State Machine Detection ============
@@ -931,6 +1243,35 @@ Output JSON:
                 }
                 break
         
+        # ============ Adaptive Plan: Continue with ReAct ============
+        if plan.is_adaptive and results and results[-1].get('success'):
+            logger.info(f"[PEVL] First step completed, continuing with ReAct mode for remaining {len(plan.next_steps_guidance)} guidance steps")
+            
+            yield {
+                "type": "info",
+                "content": f"✓ First step completed. Continuing with ReAct mode for {len(plan.next_steps_guidance)} remaining goals..."
+            }
+            
+            # Build guidance context for ReAct
+            guidance_context = "\n**Remaining Goals:**\n"
+            for i, guidance in enumerate(plan.next_steps_guidance, 1):
+                guidance_context += f"\n{i}. **Goal**: {guidance.goal}\n"
+                guidance_context += f"   **Success Criteria**: {guidance.success_criteria}\n"
+                if guidance.backup_strategy:
+                    guidance_context += f"   **Backup**: {guidance.backup_strategy}\n"
+            
+            guidance_context += f"\n**Overall Goal**: {plan.overall_goal}\n"
+            
+            # Continue with ReAct mode
+            react_results = yield from self._continue_with_react(
+                plan=plan,
+                first_step_results=results,
+                guidance_context=guidance_context
+            )
+            
+            # Merge results
+            results.extend(react_results)
+        
         return results
     
     def _execute_step_with_chat(self, step: PlanStep, max_attempts: int = 2) -> Dict[str, Any]:
@@ -1003,6 +1344,409 @@ Output JSON:
             'success': False,
             'attempts': max_attempts
         }
+    
+    def _build_strategic_context(self, plan: ExecutionPlan) -> str:
+        """
+        Build context from strategic plan
+        
+        Args:
+            plan: Strategic execution plan
+            
+        Returns:
+            Formatted context string
+        """
+        context = f"**Task**: {plan.query}\n\n"
+        context += f"**Overall Goal**: {plan.overall_goal}\n\n"
+        
+        # Recommended tools
+        if plan.recommended_tools:
+            context += "**Recommended Tools**:\n"
+            for tool_rec in plan.recommended_tools:
+                context += f"- **{tool_rec.tool}**: {tool_rec.reason}\n"
+                context += f"  Typical use: {tool_rec.typical_use}\n"
+            context += "\n"
+        
+        # Step guidance
+        if plan.step_guidance:
+            context += "**Step-by-Step Guidance**:\n"
+            for i, guidance in enumerate(plan.step_guidance, 1):
+                context += f"\n**Step {i}: {guidance.goal}**\n"
+                context += f"Success criteria: {guidance.success_criteria}\n"
+                if guidance.considerations:
+                    context += "Considerations:\n"
+                    for consideration in guidance.considerations:
+                        context += f"  - {consideration}\n"
+                if guidance.backup_strategy:
+                    context += f"Backup: {guidance.backup_strategy}\n"
+            context += "\n"
+        
+        # Lessons learned
+        if plan.lessons_learned:
+            context += "**Lessons Learned**:\n"
+            for lesson in plan.lessons_learned:
+                context += f"- {lesson}\n"
+            context += "\n"
+        
+        # Risks
+        if plan.risks:
+            context += "**Risks to Consider**:\n"
+            for risk in plan.risks:
+                context += f"- {risk}\n"
+            context += "\n"
+        
+        return context
+    
+    def _execute_with_react_guidance(
+        self,
+        plan: ExecutionPlan,
+        guidance_context: str
+    ) -> Generator[List[Dict[str, Any]], None, None]:
+        """
+        Execute task with ReAct mode from the start, guided by strategic plan
+        
+        Args:
+            plan: Strategic execution plan
+            guidance_context: Formatted guidance
+            
+        Yields:
+            Progress updates
+            
+        Returns:
+            List of execution results
+        """
+        logger.info("[PEVL] Starting ReAct execution with strategic guidance")
+        
+        # Create ReAct prompt with strategic guidance
+        react_prompt = f"""You are executing a task with strategic guidance. Use ReAct pattern: Reasoning → Action → Observation.
+
+{guidance_context}
+
+**Available Tools**: {', '.join([t.name for t in self.tools])}
+
+**ReAct Instructions**:
+1. For each step, first REASON about what to do
+2. Then take an ACTION (call a tool)
+3. OBSERVE the result
+4. Decide next action or if goal is achieved
+
+**Important Guidelines**:
+- Follow the recommended tools, but you can use others if needed
+- Pay attention to considerations and backup strategies
+- Do NOT use complex Python inline scripts in execute_command
+- If you need complex processing, create a temporary file first
+- Focus on achieving goals, not following rigid steps
+- You can trigger mini-reasoning/mini-planning for complex sub-tasks
+
+**Current Step**: Start with Step 1
+
+Your reasoning and action:
+"""
+        
+        # Use executor agent for ReAct
+        max_iterations = len(plan.step_guidance) * 5  # Allow 5 iterations per guidance step
+        results = []
+        current_step = 1
+        
+        for iteration in range(1, max_iterations + 1):
+            self.iteration_count += 1
+            
+            try:
+                # State machine check
+                state_advice = self.state_machine.detect_state(self.iteration_count, self.working_memory)
+                if state_advice.is_urgent and state_advice.state == TaskState.STUCK:
+                    logger.error(f"[PEVL] Loop detected in ReAct, stopping")
+                    yield {
+                        "type": "error",
+                        "content": "Loop detected in ReAct mode"
+                    }
+                    break
+                
+                # Generate next action with reasoning
+                yield {
+                    "type": "step_start",
+                    "content": f"▶ ReAct Iteration {iteration} (Step {current_step}/{len(plan.step_guidance)})"
+                }
+                
+                response = self.executor_agent.generate(react_prompt)
+                
+                # Parse tool call from response
+                tool_call = self._parse_tool_call_from_response(response)
+                
+                if not tool_call:
+                    logger.warning("[PEVL] No tool call found in ReAct response, trying to extract from text")
+                    # Try to continue or break
+                    if "goal achieved" in response.lower() or "task complete" in response.lower():
+                        logger.info("[PEVL] Task appears complete")
+                        yield {
+                            "type": "info",
+                            "content": "✓ Task appears complete"
+                        }
+                        break
+                    else:
+                        logger.warning("[PEVL] Cannot parse action, skipping iteration")
+                        continue
+                
+                # Execute tool
+                result = self.tool_executor.execute(
+                    tool_call['tool'],
+                    tool_call['params']
+                )
+                
+                results.append({
+                    'tool': tool_call['tool'],
+                    'params': tool_call['params'],
+                    'output': result.output if result.success else result.error,
+                    'success': result.success,
+                    'iteration': iteration
+                })
+                
+                # Update working memory
+                if result.success:
+                    self.working_memory.add_known_fact(f"Iteration {iteration}: {tool_call['tool']} succeeded")
+                    self.episodic_memory.add_finding(
+                        f"ReAct {iteration}: {result.output[:100]}",
+                        category="result"
+                    )
+                else:
+                    self.working_memory.add_known_fact(f"Iteration {iteration}: {tool_call['tool']} failed")
+                    self.episodic_memory.add_finding(
+                        f"ReAct {iteration} failed: {result.error[:100]}",
+                        category="error"
+                    )
+                
+                yield {
+                    "type": "step_result",
+                    "content": result.output[:300] if result.success else result.error[:300],
+                    "success": result.success
+                }
+                
+                # Update prompt with result
+                react_prompt += f"\n\n**Iteration {iteration}**:\n"
+                react_prompt += f"Reasoning: {response[:200]}...\n"
+                react_prompt += f"Action: {tool_call['tool']} with {tool_call['params']}\n"
+                react_prompt += f"Observation: {result.output[:300] if result.success else result.error[:300]}\n"
+                react_prompt += f"\n**Next Step**: Continue with current step or move to next\n\nYour reasoning and action:"
+                
+                # Check if current step goal is achieved
+                if len(plan.step_guidance) > current_step - 1:
+                    current_guidance = plan.step_guidance[current_step - 1]
+                    if self._check_step_goal_completion(current_guidance, results[-3:]):
+                        logger.info(f"[PEVL] Step {current_step} goal achieved")
+                        yield {
+                            "type": "info",
+                            "content": f"✓ Step {current_step} completed: {current_guidance.goal}"
+                        }
+                        current_step += 1
+                        
+                        # Check if all steps done
+                        if current_step > len(plan.step_guidance):
+                            logger.info("[PEVL] All guidance steps completed")
+                            yield {
+                                "type": "info",
+                                "content": "✓ All guidance steps completed!"
+                            }
+                            break
+                
+            except Exception as e:
+                logger.error(f"[PEVL] Error in ReAct iteration {iteration}: {e}")
+                yield {
+                    "type": "error",
+                    "content": f"Error in iteration {iteration}: {str(e)[:100]}"
+                }
+                # Continue to next iteration instead of breaking
+                continue
+        
+        return results
+    
+    def _check_step_goal_completion(
+        self,
+        guidance: 'StepGuidance',
+        recent_results: List[Dict[str, Any]]
+    ) -> bool:
+        """
+        Check if a step goal is completed
+        
+        Args:
+            guidance: Step guidance
+            recent_results: Recent execution results
+            
+        Returns:
+            True if goal appears completed
+        """
+        # Simple heuristic: check if recent results are successful
+        if not recent_results:
+            return False
+        
+        # Check if recent results are successful
+        recent_successes = sum(1 for r in recent_results if r.get('success'))
+        return recent_successes >= len(recent_results) // 2
+    
+    def _continue_with_react(
+        self,
+        plan: ExecutionPlan,
+        first_step_results: List[Dict[str, Any]],
+        guidance_context: str
+    ) -> Generator[List[Dict[str, Any]], None, None]:
+        """
+        Continue execution with ReAct mode after first step
+        
+        Args:
+            plan: Execution plan with guidance
+            first_step_results: Results from first step
+            guidance_context: Formatted guidance for ReAct
+            
+        Yields:
+            Progress updates
+            
+        Returns:
+            List of execution results
+        """
+        logger.info("[PEVL] Entering ReAct mode with guidance")
+        
+        # Build context from first step
+        first_step_output = first_step_results[0].get('output', '') if first_step_results else ''
+        
+        # Create ReAct prompt with guidance
+        react_prompt = f"""Continue the task based on the first step results and guidance.
+
+**Task**: {plan.query}
+
+**First Step Completed**:
+Tool: {first_step_results[0].get('tool', 'N/A')}
+Output: {first_step_output[:500]}...
+
+{guidance_context}
+
+**Instructions**:
+1. Review the first step output
+2. Work through each remaining goal in order
+3. Use the success criteria to verify completion
+4. Apply backup strategies if primary approach fails
+5. Keep track of progress towards the overall goal
+
+**Available Tools**: {', '.join([t.name for t in self.tools])}
+
+**Important**:
+- Do NOT use complex Python inline scripts in execute_command
+- Prefer simple shell commands or built-in tools
+- If you need complex processing, create a temporary Python file first
+- Focus on achieving the goals, not following a rigid plan
+
+Continue with the next goal:
+"""
+        
+        # Use executor agent for ReAct
+        max_iterations = len(plan.next_steps_guidance) * 3  # Allow 3 iterations per guidance
+        results = []
+        
+        for iteration in range(max_iterations):
+            try:
+                # Generate next action
+                response = self.executor_agent.generate(react_prompt)
+                
+                # Parse tool call from response
+                tool_call = self._parse_tool_call_from_response(response)
+                
+                if not tool_call:
+                    logger.warning("[PEVL] No tool call found in ReAct response")
+                    break
+                
+                # Execute tool
+                yield {
+                    "type": "step_start",
+                    "content": f"▶ ReAct Step {iteration + 1}: {tool_call.get('description', 'Continuing task')}"
+                }
+                
+                result = self.tool_executor.execute(
+                    tool_call['tool'],
+                    tool_call['params']
+                )
+                
+                results.append({
+                    'tool': tool_call['tool'],
+                    'params': tool_call['params'],
+                    'output': result.output if result.success else result.error,
+                    'success': result.success
+                })
+                
+                yield {
+                    "type": "step_result",
+                    "content": result.output[:200] if result.success else result.error[:200],
+                    "success": result.success
+                }
+                
+                # Update prompt with result
+                react_prompt += f"\n\n**Action {iteration + 1}**:\nTool: {tool_call['tool']}\nResult: {result.output[:300] if result.success else result.error[:300]}\n\nNext action:"
+                
+                # Check if overall goal is achieved
+                if self._check_goal_completion(plan.overall_goal, results):
+                    logger.info("[PEVL] Overall goal achieved in ReAct mode")
+                    yield {
+                        "type": "info",
+                        "content": "✓ Overall goal achieved!"
+                    }
+                    break
+                
+            except Exception as e:
+                logger.error(f"[PEVL] Error in ReAct iteration {iteration}: {e}")
+                break
+        
+        return results
+    
+    def _parse_tool_call_from_response(self, response: str) -> Optional[Dict[str, Any]]:
+        """
+        Parse tool call from LLM response
+        
+        Args:
+            response: LLM response text
+            
+        Returns:
+            Tool call dict or None
+        """
+        # Try to extract JSON tool call
+        import re
+        json_match = re.search(r'```json\s*\n(.*?)\n```', response, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group(1))
+            except:
+                pass
+        
+        # Try to extract tool name and params from text
+        # This is a simple fallback - can be improved
+        tool_match = re.search(r'Tool:\s*(\w+)', response)
+        if tool_match:
+            tool_name = tool_match.group(1)
+            # Try to find params
+            params_match = re.search(r'Params:\s*({.*?})', response, re.DOTALL)
+            if params_match:
+                try:
+                    params = json.loads(params_match.group(1))
+                    return {'tool': tool_name, 'params': params}
+                except:
+                    pass
+        
+        return None
+    
+    def _check_goal_completion(self, goal: str, results: List[Dict[str, Any]]) -> bool:
+        """
+        Check if goal is completed based on results
+        
+        Args:
+            goal: Goal description
+            results: Execution results
+            
+        Returns:
+            True if goal appears to be completed
+        """
+        # Simple heuristic: check if we have successful results
+        # In a more sophisticated implementation, this would use LLM to verify
+        if not results:
+            return False
+        
+        # Check if recent results are successful
+        recent_successes = sum(1 for r in results[-3:] if r.get('success'))
+        return recent_successes >= 2
     
     def _phase3_verification(
         self,
