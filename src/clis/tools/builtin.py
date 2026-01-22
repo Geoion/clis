@@ -324,6 +324,11 @@ class ExecuteCommandTool(Tool):
                     "type": "integer",
                     "description": "Command timeout in seconds (default: 30)",
                     "default": 30
+                },
+                "working_directory": {
+                    "type": "string",
+                    "description": "Working directory to execute command in (optional)",
+                    "default": None
                 }
             },
             "required": ["command"]
@@ -344,15 +349,34 @@ class ExecuteCommandTool(Tool):
         """Execute command always requires confirmation."""
         return True
     
-    def execute(self, command: str, timeout: int = 30) -> ToolResult:
+    def execute(self, command: str, timeout: int = 30, working_directory: Optional[str] = None) -> ToolResult:
         """Execute shell command."""
         try:
+            # Validate working directory if provided
+            cwd = None
+            if working_directory:
+                cwd_path = Path(working_directory)
+                if not cwd_path.exists():
+                    return ToolResult(
+                        success=False,
+                        output="",
+                        error=f"Working directory does not exist: {working_directory}"
+                    )
+                if not cwd_path.is_dir():
+                    return ToolResult(
+                        success=False,
+                        output="",
+                        error=f"Working directory is not a directory: {working_directory}"
+                    )
+                cwd = str(cwd_path.resolve())
+            
             result = subprocess.run(
                 command,
                 shell=True,
                 capture_output=True,
                 text=True,
-                timeout=timeout
+                timeout=timeout,
+                cwd=cwd
             )
             
             output = result.stdout
