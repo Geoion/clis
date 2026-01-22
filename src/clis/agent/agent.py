@@ -67,14 +67,16 @@ class Agent:
         prompt: str,
         system_prompt: Optional[str] = None,
         inject_context: bool = True,
+        max_retries: int = 2
     ) -> str:
         """
-        Generate text from prompt.
+        Generate text from prompt with retry on timeout.
         
         Args:
             prompt: User prompt
             system_prompt: System prompt
             inject_context: Whether to inject platform context
+            max_retries: Maximum number of retries on timeout (default: 2)
             
         Returns:
             Generated text
@@ -86,7 +88,26 @@ class Agent:
         if inject_context and system_prompt:
             system_prompt = self._inject_context(system_prompt)
         
-        return self.provider.generate(prompt, system_prompt)
+        # Retry logic for timeout errors
+        last_error = None
+        for attempt in range(max_retries + 1):
+            try:
+                return self.provider.generate(prompt, system_prompt)
+            except Exception as e:
+                error_msg = str(e).lower()
+                # Check if it's a timeout error
+                if 'timeout' in error_msg or 'timed out' in error_msg:
+                    last_error = e
+                    if attempt < max_retries:
+                        from clis.utils.logger import get_logger
+                        logger = get_logger(__name__)
+                        logger.warning(f"API timeout on attempt {attempt + 1}/{max_retries + 1}, retrying...")
+                        continue
+                # For non-timeout errors, raise immediately
+                raise
+        
+        # All retries exhausted
+        raise last_error if last_error else RuntimeError("Generation failed")
 
     def generate_stream(
         self,
