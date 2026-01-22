@@ -1,3 +1,13 @@
+---
+description: 
+alwaysApply: true
+---
+
+---
+description: 
+alwaysApply: true
+---
+
 # Cursor Rules for CLIS Project
 
 ## Documentation Management
@@ -55,6 +65,48 @@ Should I create docs/DEPLOYMENT.md or add it to README.md?
 
 ---
 
+## Language Requirements
+
+### CRITICAL: English Only in Code
+
+**Rule**: ALL code-related text MUST be written in English.
+
+**This includes**:
+- Code comments (inline, block, docstrings)
+- Log messages (logging.info, logging.error, etc.)
+- Print statements (print(), console output)
+- Error messages and exceptions
+- Prompts and user-facing messages in code
+- Variable names, function names, class names
+- Documentation strings
+- Commit messages
+
+**Examples**:
+
+❌ **WRONG** - Using Chinese:
+```python
+# 这是一个错误的注释
+logger.info("开始处理数据")
+print("处理完成")
+raise ValueError("参数错误")
+```
+
+✅ **CORRECT** - Using English:
+```python
+# This is a correct comment
+logger.info("Starting data processing")
+print("Processing completed")
+raise ValueError("Invalid parameter")
+```
+
+**Why This Rule Exists**:
+1. **International collaboration** - English is the universal language for code
+2. **Tool compatibility** - Many development tools work better with English
+3. **Code review** - Easier for international teams to review
+4. **Best practices** - Industry standard for professional codebases
+
+---
+
 ## Code Organization
 
 ### File Creation
@@ -82,5 +134,5 @@ Should I create docs/DEPLOYMENT.md or add it to README.md?
 
 ---
 
-**Last Updated**: 2026-01-21
+**Last Updated**: 2026-01-22
 **Maintained By**: User preferences
