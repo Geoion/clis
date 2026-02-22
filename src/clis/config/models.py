@@ -109,7 +109,7 @@ class CostConfig(BaseModel):
 class LLMConfig(BaseModel):
     """LLM configuration (llm.yaml)."""
 
-    provider: Literal["openai", "anthropic", "deepseek", "qwen", "ollama"] = Field(
+    provider: Literal["openai", "anthropic", "deepseek", "qwen", "ollama", "openrouter"] = Field(
         default="deepseek", description="LLM provider"
     )
     api: APIConfig = Field(default_factory=APIConfig)
