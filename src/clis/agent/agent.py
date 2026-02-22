@@ -5,8 +5,12 @@ Agent core for CLIS - handles LLM interactions and prompt building.
 from typing import Any, Dict, Generator, Optional
 
 from clis.agent.providers.base import LLMProvider
+from clis.agent.providers.anthropic import AnthropicProvider
 from clis.agent.providers.deepseek import DeepSeekProvider
 from clis.agent.providers.ollama import OllamaProvider
+from clis.agent.providers.openai import OpenAIProvider
+from clis.agent.providers.openrouter import OpenRouterProvider
+from clis.agent.providers.qwen import QwenProvider
 from clis.config import ConfigManager
 from clis.utils.logger import get_logger
 from clis.utils.platform import get_platform, get_shell
@@ -54,6 +58,42 @@ class Agent:
         elif provider_name == "ollama":
             self.provider = OllamaProvider(
                 base_url=base_url,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=timeout,
+            )
+        elif provider_name == "openai":
+            self.provider = OpenAIProvider(
+                api_key=api_key,
+                base_url=base_url or "https://api.openai.com/v1",
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=timeout,
+            )
+        elif provider_name == "anthropic":
+            self.provider = AnthropicProvider(
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=timeout,
+            )
+        elif provider_name == "qwen":
+            self.provider = QwenProvider(
+                api_key=api_key,
+                base_url=base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=timeout,
+            )
+        elif provider_name == "openrouter":
+            self.provider = OpenRouterProvider(
+                api_key=api_key,
+                base_url=base_url or "https://openrouter.ai/api/v1",
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
