@@ -150,13 +150,19 @@ class SkillVectorSearch:
         boost = 0.0
         
         keyword_boosts = {
-            'flask': ['FAST_MODE'],
-            'service': ['FAST_MODE'],
-            'port': ['FAST_MODE'],
-            'edit': ['EDIT_FILE'],
-            'file': ['EDIT_FILE'],
+            'flask': ['FAST_MODE', 'FAST MODE'],
+            'service': ['FAST_MODE', 'FAST MODE'],
+            'web': ['FAST_MODE', 'FAST MODE'],
+            'server': ['FAST_MODE', 'FAST MODE'],
+            'port': ['FAST_MODE', 'FAST MODE'],
+            'environment': ['FAST_MODE', 'FAST MODE', 'CHECKLIST'],
+            'edit': ['EDIT_FILE', 'EDIT FILE'],
+            'file': ['EDIT_FILE', 'EDIT FILE'],
+            'modify': ['EDIT_FILE', 'EDIT FILE'],
             'test': ['VERIFIER'],
             'verify': ['VERIFIER'],
+            'validate': ['VERIFIER'],
+            'check': ['VERIFIER', 'FAST_MODE', 'CHECKLIST'],
         }
         
         skill_name_upper = skill_name.upper()
@@ -197,8 +203,26 @@ class SkillVectorSearch:
         
         for skill in self.skills:
             try:
-                # Create search text: name + description
+                # Create search text: name + description + first part of instructions
                 search_text = f"{skill.name}: {skill.description}"
+                
+                # Add key content from instructions (first 500 chars for context)
+                if skill.instructions:
+                    instructions_excerpt = skill.instructions[:500].replace('\n', ' ')
+                    search_text += f" {instructions_excerpt}"
+                # Fallback to raw_content if instructions not available
+                elif skill.raw_content:
+                    # Extract first meaningful lines (skip headers)
+                    lines = skill.raw_content.split('\n')
+                    content_lines = []
+                    for line in lines[:30]:
+                        line = line.strip()
+                        if line and not line.startswith('#') and not line.startswith('---'):
+                            content_lines.append(line)
+                            if len(' '.join(content_lines)) > 300:
+                                break
+                    if content_lines:
+                        search_text += f" {' '.join(content_lines)}"
                 
                 # Generate embedding
                 embedding = self.model.encode([search_text])[0]
