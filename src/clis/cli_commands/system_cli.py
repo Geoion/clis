@@ -140,7 +140,7 @@ def doctor() -> None:
 @click.command(name="init")
 @click.option(
     "--provider",
-    type=click.Choice(["deepseek", "ollama", "openai", "anthropic", "qwen"]),
+    type=click.Choice(["deepseek", "ollama", "openai", "anthropic", "qwen", "openrouter"]),
     help="LLM provider to use",
 )
 def init(provider: str = None) -> None:
@@ -175,11 +175,12 @@ def init(provider: str = None) -> None:
         click.echo("  3. OpenAI - GPT-4, GPT-3.5")
         click.echo("  4. Anthropic - Claude")
         click.echo("  5. Qwen - Qwen (Tongyi Qianwen)")
+        click.echo("  6. OpenRouter - Access multiple models")
         click.echo()
         
         choice = click.prompt(
             "Select provider",
-            type=click.Choice(["1", "2", "3", "4", "5"]),
+            type=click.Choice(["1", "2", "3", "4", "5", "6"]),
             default="1",
         )
         
@@ -189,6 +190,7 @@ def init(provider: str = None) -> None:
             "3": "openai",
             "4": "anthropic",
             "5": "qwen",
+            "6": "openrouter",
         }
         provider = provider_map[choice]
     
