@@ -957,6 +957,42 @@ Start exploring:
         if exploration_findings:
             exploration_context = f"\n{exploration_findings}\n"
         
+        # Add skills guidance context
+        skills_context = ""
+        if self.relevant_skills:
+            skills_context = "\n\n## 💡 Relevant Skills Guidance\n\n"
+            skills_context += "The following skills have been identified as relevant to this task:\n\n"
+            
+            for skill in self.relevant_skills:
+                skills_context += f"### Skill: {skill.name}\n"
+                if skill.description:
+                    skills_context += f"**Description**: {skill.description}\n\n"
+                
+                # Add trigger patterns if available
+                if hasattr(skill, 'trigger_patterns') and skill.trigger_patterns:
+                    skills_context += f"**When to use**: {', '.join(skill.trigger_patterns[:3])}\n\n"
+                
+                # Add key instructions (first few lines of content)
+                if skill.raw_content:
+                    lines = skill.raw_content.strip().split('\n')
+                    # Extract key instructions (skip markdown headers and get first meaningful content)
+                    key_instructions = []
+                    for line in lines[:20]:  # Look at first 20 lines
+                        line = line.strip()
+                        if line and not line.startswith('#') and not line.startswith('---'):
+                            if line.startswith('-') or line.startswith('*') or line.startswith('1.'):
+                                key_instructions.append(line)
+                            if len(key_instructions) >= 5:  # Show up to 5 key points
+                                break
+                    
+                    if key_instructions:
+                        skills_context += "**Key Guidelines**:\n"
+                        for instruction in key_instructions:
+                            skills_context += f"{instruction}\n"
+                        skills_context += "\n"
+            
+            skills_context += "**IMPORTANT**: Follow these skill guidelines when planning and executing the task.\n\n"
+        
         prompt = f"""You are a strategic task planner. Generate HIGH-LEVEL guidance based on environment exploration.
 
 Task: {query}
@@ -966,6 +1002,7 @@ This is round {round_num} of planning.
 {context_text}
 {working_state}
 {historical_context}
+{skills_context}
 
 Please perform deep analysis and planning:
 
@@ -1421,10 +1458,36 @@ Output JSON:
         """
         logger.info("[PEVL] Starting ReAct execution with strategic guidance")
         
+        # Add skills guidance to ReAct prompt
+        skills_guidance = ""
+        if self.relevant_skills:
+            skills_guidance = "\n\n## 💡 Skills Guidance for Execution\n\n"
+            for skill in self.relevant_skills:
+                skills_guidance += f"**{skill.name}**: {skill.description}\n"
+                
+                # Extract actionable tips from skill content
+                if skill.raw_content:
+                    lines = skill.raw_content.strip().split('\n')
+                    tips = []
+                    for line in lines[:30]:  # Look at first 30 lines
+                        line = line.strip()
+                        # Look for action items, warnings, or important notes
+                        if any(keyword in line.lower() for keyword in ['must', 'always', 'never', 'critical', 'important', 'remember']):
+                            if not line.startswith('#'):
+                                tips.append(line)
+                            if len(tips) >= 3:
+                                break
+                    
+                    if tips:
+                        for tip in tips:
+                            skills_guidance += f"  - {tip}\n"
+                skills_guidance += "\n"
+        
         # Create ReAct prompt with strategic guidance
         react_prompt = f"""You are executing a task with strategic guidance. Use ReAct pattern: Reasoning → Action → Observation.
 
 {guidance_context}
+{skills_guidance}
 
 **Available Tools**: {', '.join([t.name for t in self.tools])}
 
@@ -1441,6 +1504,7 @@ Output JSON:
 - If you need complex processing, create a temporary file first
 - Focus on achieving goals, not following rigid steps
 - You can trigger mini-reasoning/mini-planning for complex sub-tasks
+- Apply the skills guidance above when relevant
 
 **Current Step**: Start with Step 1
 
@@ -1780,8 +1844,67 @@ Continue with the next goal:
             report += f"  Success: {result.get('success')}\n"
             report += f"  Output: {result.get('output', '')[:200]}...\n\n"
         
+        # Add Verifier skills guidance
+        verifier_guidance = ""
+        if self.relevant_skills:
+            # Find Verifier skill
+            verifier_skill = None
+            for skill in self.relevant_skills:
+                if 'verifier' in skill.name.lower() or 'verification' in skill.name.lower():
+                    verifier_skill = skill
+                    break
+            
+            if verifier_skill:
+                verifier_guidance = "\n\n## 💡 Verification Skills Guidance\n\n"
+                verifier_guidance += f"**Skill**: {verifier_skill.name}\n"
+                verifier_guidance += f"**Purpose**: {verifier_skill.description}\n\n"
+                
+                # Extract verification strategies from skill content
+                if verifier_skill.raw_content:
+                    lines = verifier_skill.raw_content.split('\n')
+                    
+                    # Extract step-type specific verification strategies
+                    verification_strategies = []
+                    current_section = None
+                    collect_items = False
+                    
+                    for line in lines:
+                        line_stripped = line.strip()
+                        
+                        # Detect main section headers (### headers)
+                        if line_stripped.startswith('###'):
+                            current_section = line_stripped
+                            collect_items = False
+                            # Check if this is a verification strategy section
+                            if any(keyword in line_stripped.lower() for keyword in ['file write', 'dependency', 'service start', 'import']):
+                                verification_strategies.append(f"\n{current_section}")
+                        
+                        # Detect "What to verify:" subsections
+                        elif line_stripped.startswith('**What to verify:**'):
+                            collect_items = True
+                            verification_strategies.append(line_stripped)
+                        
+                        # Collect verification points
+                        elif collect_items:
+                            if line_stripped.startswith('-') or line_stripped.startswith('*'):
+                                verification_strategies.append(line_stripped)
+                            elif line_stripped.startswith('**') or line_stripped.startswith('```') or line_stripped == '':
+                                # End of list
+                                collect_items = False
+                            
+                            if len(verification_strategies) >= 25:  # Limit to key points
+                                break
+                    
+                    if verification_strategies:
+                        verifier_guidance += "**Key Verification Strategies by Step Type**:\n"
+                        for strategy in verification_strategies[:20]:  # Top 20 points
+                            verifier_guidance += f"{strategy}\n"
+                        verifier_guidance += "\n"
+                
+                verifier_guidance += "**IMPORTANT**: Apply these verification strategies based on the actual steps executed above.\n\n"
+        
         prompt = f"""{report}
-
+{verifier_guidance}
 Please perform deep verification and diagnosis:
 
 ## 1. Step-by-Step Check
@@ -2481,11 +2604,29 @@ Return JSON:
         if hasattr(self, 'similar_tasks_context') and self.similar_tasks_context:
             historical_context = self.similar_tasks_context + "\n\n**IMPORTANT**: Learn from past failures above! If similar tasks failed due to specific issues (e.g., port conflicts, missing dependencies), avoid those mistakes in your plan.\n\n"
         
+        # Add skills guidance
+        skills_guidance = ""
+        if self.relevant_skills:
+            skills_guidance = "\n\n💡 **Relevant Skills Guidance**:\n"
+            for skill in self.relevant_skills:
+                skills_guidance += f"- **{skill.name}**: {skill.description}\n"
+                
+                # Extract key action items
+                if skill.raw_content:
+                    lines = skill.raw_content.strip().split('\n')
+                    for line in lines[:20]:
+                        line = line.strip()
+                        if any(keyword in line.lower() for keyword in ['must', 'always', 'never', 'remember']):
+                            if not line.startswith('#') and len(line) > 10:
+                                skills_guidance += f"  - {line}\n"
+                                break
+            skills_guidance += "\n"
+        
         return f"""You are a task planning expert. Quickly generate a concise execution plan for the following task.
 
 Task: {query}
 
-{historical_context}Requirements:
+{historical_context}{skills_guidance}Requirements:
 - Break down task into 2-4 clear steps
 - Select appropriate tools for each step
 - Keep the plan concise and practical
