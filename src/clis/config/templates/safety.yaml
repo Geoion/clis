@@ -181,10 +181,10 @@ agent:
     
     # Model configuration for each phase
     models:
-      analyzer: deepseek-r1      # Task analysis
-      planner: deepseek-r1       # Planning
-      executor: deepseek-chat    # Execution (or qwen-2.5-coder-32b)
-      verifier: deepseek-r1      # Verification
+      analyzer: deepseek-v4-flash   # Task analysis
+      planner: deepseek-v4-flash    # Planning
+      executor: deepseek-v4-flash   # Execution (or qwen-2.5-coder-32b)
+      verifier: deepseek-v4-flash   # Verification
     
     # Replanning configuration
     replan:
