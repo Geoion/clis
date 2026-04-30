@@ -6,7 +6,7 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.0-orange)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.1.1-orange)](CHANGELOG.md)
 
 [Quick Start](#-quick-start) • [Usage](#-usage) • [Commands](#-commands) • [Documentation](#-documentation)
 
@@ -270,9 +270,9 @@ Edit `~/.clis/config/llm.yaml`:
 
 ```yaml
 model:
-  name: deepseek-chat
+  name: deepseek-v4-flash
   context:
-    window_size: 64000      # deepseek-chat: 64K, deepseek-coder: 128K
+    window_size: 1000000    # deepseek-v4-flash/pro: 1M, deepseek-coder: 128K
     auto_chunk: true        # Enable automatic file chunking
     chunk_overlap: 200      # Overlap lines between chunks
     reserved_tokens: 4000   # Reserved for system prompt
@@ -332,6 +332,22 @@ All tools have explicit risk scores and confirmation requirements. Configure beh
 
 ---
 
+## 📝 Changelog
+
+### v0.1.1 (2026-04-30)
+
+- **DeepSeek V4 support** — Added `deepseek-v4-flash` and `deepseek-v4-pro` (1M context, up to 384K output); legacy model ids remain supported for backward compatibility
+- **`thinking_mode` parameter** — Explicit toggle for DeepSeek V4 Flash reasoning mode; defaults to legacy name-based detection
+- **Updated pricing** — `estimate_cost()` now uses per-model rates: V4 Flash ¥1+2 / V4 Pro ¥3+6 per million tokens
+- **PEVL default models** — All PEVL phases now default to `deepseek-v4-flash`
+- **Auto context scaling** — `ContextManager` automatically scales observation limits proportional to the model's context window (e.g., 1M window → max 60 observations vs 10 for 64K)
+
+### v0.1.0
+
+- Initial release
+
+---
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
@@ -346,6 +362,5 @@ Apache License 2.0 - see [LICENSE](LICENSE) file for details.
 
 ## 🔗 Links
 
-- **Homepage**: https://github.com/Geoion/clis
 - **Issues**: https://github.com/Geoion/clis/issues
 - **Documentation**: https://github.com/Geoion/clis#readme
