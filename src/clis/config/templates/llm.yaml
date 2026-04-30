@@ -25,12 +25,19 @@ api:
 # Model Configuration
 model:
   # Model name
-  # For DeepSeek: deepseek-chat, deepseek-coder
+  # For DeepSeek:
+  #   - deepseek-v4-flash, deepseek-v4-pro (1M context; recommended)
+  #   - deepseek-chat, deepseek-reasoner (legacy; API may deprecate)
+  #   - deepseek-coder
   # For OpenAI: gpt-4, gpt-3.5-turbo
   # For Anthropic: claude-3-opus, claude-3-sonnet
   # For Qwen: qwen-plus, qwen-turbo
   # For Ollama: llama3, codellama, mistral, etc.
-  name: deepseek-chat
+  name: deepseek-v4-flash
+
+  # DeepSeek V4 Flash only: optional explicit reasoning token limit toggle
+  # (true/false). Omit or null to use legacy model-id detection (r1/reasoner).
+  # thinking_mode: null
   
   # Temperature
   # Controls randomness: 0.0 = deterministic, 1.0 = creative
@@ -47,9 +54,10 @@ model:
     # Set based on your model:
     #
     # DeepSeek (API):
-    #   - deepseek-chat: 64000
+    #   - deepseek-v4-flash, deepseek-v4-pro: 1000000
+    #   - deepseek-chat: 64000 (deprecated id)
     #   - deepseek-coder: 128000
-    #   - deepseek-reasoner: 64000
+    #   - deepseek-reasoner: 64000 (deprecated id)
     #
     # Qwen (API):
     #   - qwen-plus: 32000
@@ -64,7 +72,7 @@ model:
     #   - qwen2/qwen2.5: 32000
     #   - Check your model: ollama show <model> --modelfile
     #
-    window_size: 64000
+    window_size: 1000000
     
     # Enable automatic file chunking
     # When true, large files are automatically split into chunks
