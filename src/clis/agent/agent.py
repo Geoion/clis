@@ -43,6 +43,7 @@ class Agent:
         temperature = llm_config.model.temperature
         max_tokens = llm_config.model.max_tokens
         timeout = llm_config.api.timeout
+        thinking_mode = llm_config.model.thinking_mode
         
         logger.info(f"Loading LLM provider: {provider_name}")
         
@@ -54,6 +55,7 @@ class Agent:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 timeout=timeout,
+                thinking_mode=thinking_mode,
             )
         elif provider_name == "ollama":
             self.provider = OllamaProvider(
