@@ -335,6 +335,8 @@ class FileChunker:
 # For Ollama, context window depends on the specific model running locally
 MODEL_PRESETS = {
     # DeepSeek (API)
+    "deepseek-v4-flash": {"window_size": 1000000},
+    "deepseek-v4-pro": {"window_size": 1000000},
     "deepseek-chat": {"window_size": 64000},
     "deepseek-coder": {"window_size": 128000},
     "deepseek-reasoner": {"window_size": 64000},
