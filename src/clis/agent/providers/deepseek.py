@@ -12,6 +12,21 @@ from clis.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+def _should_apply_reasoning_token_limit(model: str, thinking_mode: Optional[bool]) -> bool:
+    """
+    Whether to send max_reasoning_tokens for this model.
+
+    Explicit thinking_mode=True enables it for V4 Flash; False disables it.
+    When thinking_mode is None, legacy model id heuristics apply (R1 / reasoner).
+    """
+    if thinking_mode is True:
+        return True
+    if thinking_mode is False:
+        return False
+    lowered = model.lower()
+    return "r1" in lowered or "reasoner" in lowered
+
+
 class DeepSeekProvider(LLMProvider):
     """DeepSeek LLM provider using OpenAI-compatible API."""
 
@@ -19,11 +34,12 @@ class DeepSeekProvider(LLMProvider):
         self,
         api_key: Optional[str] = None,
         base_url: str = "https://api.deepseek.com/v1",
-        model: str = "deepseek-chat",
+        model: str = "deepseek-v4-flash",
         temperature: float = 0.1,
         max_tokens: int = 2000,
         timeout: int = 30,
         max_reasoning_tokens: Optional[int] = None,
+        thinking_mode: Optional[bool] = None,
     ):
         """
         Initialize DeepSeek provider.
@@ -31,11 +47,14 @@ class DeepSeekProvider(LLMProvider):
         Args:
             api_key: DeepSeek API key
             base_url: API base URL
-            model: Model name (deepseek-chat, deepseek-r1, deepseek-coder)
+            model: Model name (e.g. deepseek-v4-flash, deepseek-v4-pro,
+                deepseek-chat, deepseek-reasoner — legacy ids remain supported)
             temperature: Temperature for generation
             max_tokens: Maximum tokens in response
             timeout: Request timeout in seconds
-            max_reasoning_tokens: Max tokens for reasoning (R1 only)
+            max_reasoning_tokens: Max tokens for reasoning (reasoning models)
+            thinking_mode: For deepseek-v4-flash, set True/False to control
+                reasoning token limit; None uses legacy name-based detection only
         """
         super().__init__(api_key, base_url, model, temperature, max_tokens, timeout)
         
@@ -43,6 +62,7 @@ class DeepSeekProvider(LLMProvider):
             raise ValueError("DeepSeek API key is required")
         
         self.max_reasoning_tokens = max_reasoning_tokens
+        self.thinking_mode = thinking_mode
         
         self.client = OpenAI(
             api_key=api_key,
@@ -66,7 +86,7 @@ class DeepSeekProvider(LLMProvider):
             system_prompt: System prompt
             temperature: Temperature override
             max_tokens: Max tokens override
-            max_reasoning_tokens: Max reasoning tokens override (R1 only)
+            max_reasoning_tokens: Max reasoning tokens override (reasoning models)
             
         Returns:
             Generated text
@@ -94,8 +114,7 @@ class DeepSeekProvider(LLMProvider):
                 "max_tokens": max_tok,
             }
             
-            # R1 models support reasoning parameter
-            if 'r1' in self.model.lower() and max_reasoning:
+            if _should_apply_reasoning_token_limit(self.model, self.thinking_mode) and max_reasoning:
                 api_params["max_reasoning_tokens"] = max_reasoning
             
             response = self.client.chat.completions.create(**api_params)
@@ -138,7 +157,7 @@ class DeepSeekProvider(LLMProvider):
             system_prompt: System prompt
             temperature: Temperature override
             max_tokens: Max tokens override
-            max_reasoning_tokens: Max reasoning tokens override (R1 only)
+            max_reasoning_tokens: Max reasoning tokens override (reasoning models)
             
         Yields:
             Text chunks as they are generated
@@ -166,7 +185,7 @@ class DeepSeekProvider(LLMProvider):
                 "stream": True,
             }
             
-            if 'r1' in self.model.lower() and max_reasoning:
+            if _should_apply_reasoning_token_limit(self.model, self.thinking_mode) and max_reasoning:
                 api_params["max_reasoning_tokens"] = max_reasoning
             
             stream = self.client.chat.completions.create(**api_params)
@@ -188,19 +207,26 @@ class DeepSeekProvider(LLMProvider):
 
     def estimate_cost(self, input_tokens: int, output_tokens: int) -> float:
         """
-        Estimate cost for DeepSeek API call.
-        
-        DeepSeek pricing (as of 2024):
-        - Input: ¥0.001/1K tokens
-        - Output: ¥0.002/1K tokens
-        
+        Estimate cost for DeepSeek API call (CNY, uncached input).
+
+        Uses published per-million-token rates for V4; legacy models keep
+        the previous 1K-token based estimate.
+
         Args:
             input_tokens: Number of input tokens
             output_tokens: Number of output tokens
-            
+
         Returns:
             Estimated cost in CNY
         """
-        input_cost = input_tokens / 1000 * 0.001
-        output_cost = output_tokens / 1000 * 0.002
+        name = self.model.lower()
+        if "v4-pro" in name:
+            input_per_m, output_per_m = 3.0, 6.0
+        elif "v4-flash" in name:
+            input_per_m, output_per_m = 1.0, 2.0
+        else:
+            input_per_m = 0.001 * 1000.0
+            output_per_m = 0.002 * 1000.0
+        input_cost = input_tokens / 1_000_000 * input_per_m
+        output_cost = output_tokens / 1_000_000 * output_per_m
         return input_cost + output_cost
