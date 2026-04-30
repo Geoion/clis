@@ -88,6 +88,10 @@ class ModelConfig(BaseModel):
     name: str = Field(default="", description="Model name")
     temperature: float = Field(default=0.1, description="Temperature")
     max_tokens: int = Field(default=2000, description="Max tokens")
+    thinking_mode: Optional[bool] = Field(
+        default=None,
+        description="DeepSeek V4 Flash only: True/False to control reasoning token limit; None uses legacy detection",
+    )
     context: ContextConfig = Field(default_factory=ContextConfig, description="Context window settings")
 
 
@@ -242,10 +246,10 @@ class ContextManagementConfig(BaseModel):
 class PEVLModelsConfig(BaseModel):
     """PEVL model configuration"""
     
-    analyzer: str = Field(default="deepseek-r1", description="Task analyzer model")
-    planner: str = Field(default="deepseek-r1", description="Planning model")
-    executor: str = Field(default="deepseek-chat", description="Execution model")
-    verifier: str = Field(default="deepseek-r1", description="Verification model")
+    analyzer: str = Field(default="deepseek-v4-flash", description="Task analyzer model")
+    planner: str = Field(default="deepseek-v4-flash", description="Planning model")
+    executor: str = Field(default="deepseek-v4-flash", description="Execution model")
+    verifier: str = Field(default="deepseek-v4-flash", description="Verification model")
 
 
 class PEVLReplanConfig(BaseModel):
