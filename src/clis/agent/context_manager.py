@@ -59,6 +59,16 @@ class ContextManager:
     - Summarization of middle observations
     """
     
+    # Baseline for dynamic scaling: matches the original fixed defaults.
+    _BASELINE_WINDOW = 64_000
+    _BASELINE_MAX_OBS = 10
+    _BASELINE_THRESHOLD = 5
+    _BASELINE_KEEP_RECENT = 3
+    # Caps prevent runaway memory consumption on very large context models.
+    _MAX_OBS_CAP = 60
+    _THRESHOLD_CAP = 40
+    _KEEP_RECENT_CAP = 12
+
     def __init__(self, config_manager: Optional[ConfigManager] = None):
         """
         Initialize context manager.
@@ -68,7 +78,7 @@ class ContextManager:
         """
         self.config_manager = config_manager or ConfigManager()
         
-        # Load configuration
+        # Load base configuration
         try:
             safety_config = self.config_manager.load_safety_config()
             self.context_config = safety_config.context_management
@@ -76,7 +86,12 @@ class ContextManager:
             logger.warning(f"Failed to load context config: {e}, using defaults")
             from clis.config.models import ContextManagementConfig
             self.context_config = ContextManagementConfig()
-        
+
+        # Scale observation limits proportionally to the model's context window.
+        # The static config values act as a minimum guarantee; larger windows get
+        # proportionally higher limits (capped to avoid excessive memory use).
+        self._apply_window_scaling()
+
         # Observation storage
         self.observations: List[Observation] = []
         self.current_iteration = 0
@@ -84,6 +99,56 @@ class ContextManager:
         # Duplicate operation detection
         self.recent_failed_operations: List[str] = []  # Recent failed operation signatures
         self.duplicate_warning_count = 0  # Duplicate warning count
+
+    def _apply_window_scaling(self) -> None:
+        """
+        Adjust observation limits based on the current model's context window size.
+
+        Uses a simple proportional formula anchored at 64 K tokens (the original
+        deepseek-chat baseline).  The static values from safety.yaml act as
+        minimum floors so that intentional downward overrides are respected.
+        """
+        try:
+            llm_config = self.config_manager.load_llm_config()
+            window_size = llm_config.model.context.window_size
+        except Exception as e:
+            logger.debug(f"Could not load LLM config for window scaling: {e}")
+            return
+
+        if window_size <= 0:
+            return
+
+        scale = window_size / self._BASELINE_WINDOW
+
+        dynamic_max_obs = min(
+            max(self.context_config.max_observations, int(self._BASELINE_MAX_OBS * scale)),
+            self._MAX_OBS_CAP,
+        )
+        dynamic_threshold = min(
+            max(self.context_config.compression_threshold, int(self._BASELINE_THRESHOLD * scale)),
+            self._THRESHOLD_CAP,
+        )
+        dynamic_keep_recent = min(
+            max(self.context_config.keep_recent, int(self._BASELINE_KEEP_RECENT * scale)),
+            self._KEEP_RECENT_CAP,
+        )
+
+        if (
+            dynamic_max_obs != self.context_config.max_observations
+            or dynamic_threshold != self.context_config.compression_threshold
+            or dynamic_keep_recent != self.context_config.keep_recent
+        ):
+            logger.info(
+                f"Context window {window_size:,} tokens → "
+                f"max_observations {self.context_config.max_observations}→{dynamic_max_obs}, "
+                f"compression_threshold {self.context_config.compression_threshold}→{dynamic_threshold}, "
+                f"keep_recent {self.context_config.keep_recent}→{dynamic_keep_recent}"
+            )
+            self.context_config = self.context_config.model_copy(update={
+                "max_observations": dynamic_max_obs,
+                "compression_threshold": dynamic_threshold,
+                "keep_recent": dynamic_keep_recent,
+            })
     
     def add_observation(
         self,
